@@ -1,0 +1,47 @@
+name: Test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  offline-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # These documented offline switches prevent accidental gated-model access.
+      # https://huggingface.co/docs/transformers/installation#offline-mode
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      CUDA_VISIBLE_DEVICES: ""
+      GRADIO_ANALYTICS_ENABLED: "False"
+
+    steps:
+      - name: Check out repository and pinned submodule
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: recursive
+
+      # uv recommends setup-uv plus frozen project synchronization in Actions:
+      # https://docs.astral.sh/uv/guides/integration/github/
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.12"
+          enable-cache: true
+          python-version: "3.12"
+
+      - name: Synchronize locked environment
+        run: uv sync --frozen
+
+      - name: Run offline default tests
+        run: uv run --frozen pytest
+
+      - name: Run Ruff checks
+        run: uv run --frozen ruff check .
+
+      - name: Verify Ruff formatting
+        run: uv run --frozen ruff format --check .

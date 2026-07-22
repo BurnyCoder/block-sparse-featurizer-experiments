@@ -18,6 +18,7 @@ import ast
 import base64
 import copy
 import contextlib
+import gc
 import hashlib
 import importlib.metadata
 import io
@@ -44,7 +45,7 @@ DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "outputs" / "runs"
 
 DINO_MODEL_ID = "facebook/dinov3-vitb16-pretrain-lvd1689m"
 DINO_ACCESS_FILE = "config.json"
-EXPECTED_SUBMODULE_COMMIT = "0bf2d9a6ae959452d57bc169374c8902135e0f02"
+EXPECTED_SUBMODULE_COMMIT = "583bb538e4bec89cb046a3a8bd0b913f6245e594"
 
 # These exact versions are resolved in ``uv.lock``. Checking the installed
 # distributions follows importlib.metadata's documented distribution API:
@@ -805,6 +806,42 @@ def _save_open_figures(namespace: Mapping[str, Any], output_dir: Path) -> list[P
     return artifacts
 
 
+def _release_readme_resources(
+    namespace: dict[str, Any], logger: TimestampedLogger
+) -> None:
+    """Release README figures, Python references, and cached CUDA allocations.
+
+    A full ``gc.collect`` clears unreachable cycles after the execution namespace
+    is emptied (https://docs.python.org/3/library/gc.html#gc.collect). PyTorch's
+    public ``empty_cache`` then returns unoccupied allocator blocks before a
+    notebook kernel starts:
+    https://docs.pytorch.org/docs/stable/generated/torch.cuda.memory.empty_cache.html.
+    """
+
+    try:
+        import matplotlib.pyplot as pyplot
+
+        pyplot.close("all")
+    except Exception as error:  # pragma: no cover - defensive backend cleanup.
+        logger.warning(
+            f"Could not close README figures: {type(error).__name__}: {error}"
+        )
+    namespace.clear()
+    try:
+        gc.collect()
+    except Exception as error:  # pragma: no cover - interpreter-level defense.
+        logger.warning(
+            f"Could not collect README objects: {type(error).__name__}: {error}"
+        )
+    try:
+        import torch
+
+        torch.cuda.empty_cache()
+    except Exception as error:  # pragma: no cover - defensive runtime cleanup.
+        logger.warning(f"Could not empty CUDA cache: {type(error).__name__}: {error}")
+    logger.info("Released README execution resources and unoccupied CUDA cache")
+
+
 def _has_nonblank_raster_plot(artifacts: Sequence[Path]) -> bool:
     """Return true when at least one readable raster contains pixel variation."""
 
@@ -1024,6 +1061,10 @@ def run_readme_quickstart(
     status: Literal["passed", "failed"] = "passed"
     readme = root / "README.md"
     source_hash = _sha256(readme)
+    namespace: dict[str, Any] = {
+        "__name__": "__main__",
+        "__file__": str(readme),
+    }
 
     with TimestampedLogger(log_path, secrets=secrets) as logger:
         try:
@@ -1035,10 +1076,6 @@ def run_readme_quickstart(
                 f"Executing README quickstart from {readme}; source_sha256={source_hash}"
             )
             logger.info(f"Quickstart input source:\n{source}")
-            namespace: dict[str, Any] = {
-                "__name__": "__main__",
-                "__file__": str(readme),
-            }
             with (
                 _temporary_hf_token(resolved_token),
                 _upstream_execution_context(root, logger),
@@ -1064,6 +1101,8 @@ def run_readme_quickstart(
             error = sanitize_text(f"{type(exc).__name__}: {exc}", secrets)
             logger.error(f"README quickstart failed: {error}")
             logger.error(sanitize_text(traceback.format_exc(), secrets))
+        finally:
+            _release_readme_resources(namespace, logger)
 
         if _sha256(readme) != source_hash:
             status = "failed"

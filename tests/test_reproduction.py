@@ -158,15 +158,16 @@ def test_sanitize_text_redacts_values_assignments_and_bearer_headers() -> None:
     """Known and structurally recognizable credentials never survive logging."""
 
     secret = "plain-secret-value"
+    synthetic_hf_credential = "hf_" + "abcdefghijklmnopqrstuvwxyz"
     text = (
-        f"raw={secret} HF_TOKEN=hf_abcdefghijklmnopqrstuvwxyz "
+        f"raw={secret} HF_TOKEN={synthetic_hf_credential} "
         "Authorization: Bearer abc.def-123 password='hunter2'"
     )
 
     sanitized = reproduction.sanitize_text(text, (secret,))
 
     assert secret not in sanitized
-    assert "hf_abcdefghijklmnopqrstuvwxyz" not in sanitized
+    assert synthetic_hf_credential not in sanitized
     assert "abc.def-123" not in sanitized
     assert "hunter2" not in sanitized
     assert sanitized.count("[REDACTED]") >= 4
@@ -395,6 +396,117 @@ def test_readme_runner_executes_extracted_source_and_redacts_captured_output(
     log_text = Path(result.log_path).read_text(encoding="utf-8")
     assert token not in log_text
     assert "[REDACTED]" in log_text
+
+
+def test_failed_readme_releases_namespace_figures_and_cuda_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """README cleanup runs even on failure before a notebook kernel can start."""
+
+    import matplotlib.pyplot as plt
+    import torch
+
+    upstream = _make_upstream(tmp_path)
+    retained_namespaces: list[dict[str, Any]] = []
+    cleanup_calls: list[str] = []
+
+    def failing_executor(_source: str, namespace: dict[str, Any]) -> None:
+        """Allocate representative README resources and fail before artifact export."""
+
+        retained_namespaces.append(namespace)
+        namespace["large_array"] = bytearray(1024)
+        namespace["plt"] = plt
+        plt.figure().add_subplot().plot([0, 1], [0, 1])
+        raise RuntimeError("synthetic README failure")
+
+    monkeypatch.setattr(
+        reproduction.gc, "collect", lambda: cleanup_calls.append("gc") or 0
+    )
+    monkeypatch.setattr(
+        torch.cuda,
+        "empty_cache",
+        lambda: cleanup_calls.append("cuda-cache"),
+    )
+
+    result = reproduction.run_readme_quickstart(
+        upstream,
+        output_dir=tmp_path / "runs" / "failed-readme",
+        token="mock-token",
+        executor=failing_executor,
+    )
+
+    assert not result.ok
+    assert cleanup_calls == ["gc", "cuda-cache"]
+    assert retained_namespaces == [{}]
+    assert plt.get_fignums() == []
+
+
+def test_all_target_finishes_failed_readme_cleanup_before_notebooks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Even a failed README run releases parent GPU state before notebook launch."""
+
+    import torch
+
+    upstream = _make_upstream(tmp_path)
+    cleanup_calls: list[str] = []
+    namespaces: list[dict[str, Any]] = []
+    real_readme_runner = reproduction.run_readme_quickstart
+
+    preflight = reproduction.PreflightResult(
+        ok=True,
+        checked_at="2026-07-22T18:00:00+00:00",
+        submodule_root=str(upstream),
+        submodule_commit=reproduction.EXPECTED_SUBMODULE_COMMIT,
+        python_version="3.12.0",
+        package_versions={},
+        assets={},
+        cuda_available=True,
+        cuda_device="Mock GPU",
+        hf_token_present=True,
+        gated_model_access=True,
+        submodule_clean=True,
+    )
+
+    def failed_readme(*args: Any, **kwargs: Any) -> reproduction.ReproductionResult:
+        """Run the production finally path with a deliberately failing executor."""
+
+        def fail(_source: str, namespace: dict[str, Any]) -> None:
+            namespaces.append(namespace)
+            namespace["resource"] = bytearray(1024)
+            raise RuntimeError("synthetic failure before notebooks")
+
+        return real_readme_runner(*args, **kwargs, executor=fail)
+
+    def notebooks_after_cleanup(
+        *_args: Any, **_kwargs: Any
+    ) -> tuple[reproduction.ReproductionResult, ...]:
+        """Stand in for kernel creation and assert parent cleanup already finished."""
+
+        assert cleanup_calls == ["gc", "cuda-cache"]
+        assert namespaces == [{}]
+        return ()
+
+    monkeypatch.setattr(
+        reproduction, "preflight_environment", lambda *_args, **_kwargs: preflight
+    )
+    monkeypatch.setattr(reproduction, "run_readme_quickstart", failed_readme)
+    monkeypatch.setattr(reproduction, "run_notebooks", notebooks_after_cleanup)
+    monkeypatch.setattr(
+        reproduction.gc, "collect", lambda: cleanup_calls.append("gc") or 0
+    )
+    monkeypatch.setattr(
+        torch.cuda, "empty_cache", lambda: cleanup_calls.append("cuda-cache")
+    )
+
+    suite = reproduction.run_reproduction(
+        "all",
+        submodule_root=upstream,
+        output_root=tmp_path / "runs",
+        token="mock-token",
+    )
+
+    assert not suite.ok
 
 
 def test_notebook_runner_sets_upstream_cwd_preserves_source_and_exports_artifacts(
