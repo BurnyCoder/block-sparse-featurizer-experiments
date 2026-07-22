@@ -1,13 +1,26 @@
 [project]
-name = "block-sparse-featurizer-experiments"
+name = "bsf-experiments"
 version = "0.1.0"
 description = "Local reproduction tools and a Gradio workbench for block-sparse featurizers"
 readme = "README.md"
 authors = [
     { name = "BurnyCoder", email = "happymancz@email.cz" }
 ]
-requires-python = ">=3.12"
-dependencies = []
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "bsf",
+    "gradio==6.20.0",
+    "ipykernel>=7,<8",
+    "jupyterlab>=4.4,<5",
+    "nbclient>=0.10,<0.11",
+    "nbconvert>=7.17,<8",
+    "pandas>=2.3,<3",
+    "pillow>=12,<13",
+    "python-dotenv>=1.2,<2",
+    "torch==2.13.0",
+    "torchvision==0.28.0",
+    "transformers==5.14.1",
+]
 
 [project.scripts]
 bsf-ui = "bsf_experiments.cli:ui_main"
@@ -16,3 +29,29 @@ bsf-reproduce = "bsf_experiments.cli:reproduce_main"
 [build-system]
 requires = ["uv_build>=0.11.27,<0.12.0"]
 build-backend = "uv_build"
+
+[tool.uv.workspace]
+members = [
+    "vendor/block-sparse-featurizer",
+]
+
+[tool.uv.sources]
+bsf = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "pytest-cov>=7,<8",
+    "ruff>=0.14,<0.15",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--capture=sys"
+
+[tool.ruff]
+extend-exclude = [
+    ".venv",
+    "outputs",
+    "vendor",
+]
