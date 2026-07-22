@@ -44,6 +44,39 @@ DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "outputs" / "runs"
 
 DINO_MODEL_ID = "facebook/dinov3-vitb16-pretrain-lvd1689m"
 DINO_ACCESS_FILE = "config.json"
+EXPECTED_SUBMODULE_COMMIT = "0bf2d9a6ae959452d57bc169374c8902135e0f02"
+
+# These exact versions are resolved in ``uv.lock``. Checking the installed
+# distributions follows importlib.metadata's documented distribution API:
+# https://docs.python.org/3/library/importlib.metadata.html#distribution-versions
+EXPECTED_DISTRIBUTION_VERSIONS: Mapping[str, str] = {
+    "bsf": "0.1.0",
+    "torch": "2.13.0",
+    "torchvision": "0.28.0",
+    "transformers": "5.14.1",
+    "numpy": "2.5.1",
+    "einops": "0.8.2",
+    "matplotlib": "3.11.1",
+    "nbclient": "0.10.4",
+    "nbconvert": "7.17.1",
+    "nbformat": "5.10.4",
+    "ipykernel": "7.3.0",
+    "jupyterlab": "4.6.2",
+    "Pillow": "12.3.0",
+    "python-dotenv": "1.2.2",
+}
+
+MINIMUM_RECONSTRUCTION_R2 = 0.70
+EXPECTED_PATCH_GRID = 14
+EXPECTED_NOTEBOOK_EPOCHS = 300
+EXPECTED_NOTEBOOK_ACTIVATION_SHAPE = (58_800, 768)
+EXPECTED_README_SHAPES: Mapping[str, tuple[int, ...]] = {
+    "images_shape": (300, 224, 224, 3),
+    "acts_shape": (300, 196, 768),
+    "x_shape": (58_800, 768),
+    "z_shape": (58_800, 256, 3),
+    "atoms_shape": (256, 3, 768),
+}
 
 NOTEBOOK_RELATIVE_PATHS = (
     Path("starters/01_grassmannian.ipynb"),
@@ -111,6 +144,7 @@ class PreflightResult:
     cuda_device: str | None
     hf_token_present: bool
     gated_model_access: bool | None
+    submodule_clean: bool | None = None
     errors: tuple[str, ...] = ()
     warnings: tuple[str, ...] = ()
 
@@ -413,6 +447,30 @@ def _load_hf_token(project_root: Path = PROJECT_ROOT) -> str | None:
     return value or None
 
 
+@contextlib.contextmanager
+def _temporary_hf_token(token: str | None) -> Iterable[None]:
+    """Expose an explicit token only while trusted upstream code is executing.
+
+    Hugging Face libraries discover ``HF_TOKEN`` from the process environment.
+    Restoring the exact prior state prevents one run from changing later sessions;
+    the mapping behavior is documented at https://docs.python.org/3/library/os.html#os.environ.
+    """
+
+    if not token:
+        yield
+        return
+    was_present = "HF_TOKEN" in os.environ
+    previous = os.environ.get("HF_TOKEN")
+    os.environ["HF_TOKEN"] = token
+    try:
+        yield
+    finally:
+        if was_present and previous is not None:
+            os.environ["HF_TOKEN"] = previous
+        else:
+            os.environ.pop("HF_TOKEN", None)
+
+
 def _submodule_commit(submodule_root: Path) -> str | None:
     """Read the pinned Git commit without changing submodule state."""
 
@@ -428,6 +486,29 @@ def _submodule_commit(submodule_root: Path) -> str | None:
         return None
     commit = completed.stdout.strip()
     return commit or None
+
+
+def _submodule_clean(submodule_root: Path) -> bool | None:
+    """Return whether the vendored checkout has no tracked or untracked changes."""
+
+    try:
+        completed = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(submodule_root),
+                "status",
+                "--porcelain",
+                "--untracked-files=all",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return not completed.stdout.strip()
 
 
 def _check_hf_model_access(model_id: str, token: str) -> None:
@@ -452,6 +533,9 @@ def preflight_environment(
     check_hf: bool = True,
     required_python: tuple[int, int] = (3, 12),
     required_distributions: Sequence[str] = REQUIRED_DISTRIBUTIONS,
+    expected_versions: Mapping[str, str] | None = EXPECTED_DISTRIBUTION_VERSIONS,
+    expected_commit: str | None = EXPECTED_SUBMODULE_COMMIT,
+    require_clean_submodule: bool = True,
     version_getter: Callable[[str], str] = importlib.metadata.version,
     torch_module: Any | None = None,
     hf_access_checker: Callable[[str, str], None] | None = None,
@@ -481,7 +565,19 @@ def preflight_environment(
     package_versions: dict[str, str | None] = {}
     for distribution in required_distributions:
         try:
-            package_versions[distribution] = version_getter(distribution)
+            installed_version = version_getter(distribution)
+            package_versions[distribution] = installed_version
+            if expected_versions is not None:
+                expected_version = expected_versions.get(distribution)
+                if expected_version is None:
+                    errors.append(
+                        f"No locked version is configured for distribution: {distribution}"
+                    )
+                elif installed_version != expected_version:
+                    errors.append(
+                        f"{distribution} version {installed_version} does not match "
+                        f"expected {expected_version}."
+                    )
         except importlib.metadata.PackageNotFoundError:
             package_versions[distribution] = None
             errors.append(f"Required distribution is not installed: {distribution}")
@@ -541,7 +637,22 @@ def preflight_environment(
 
     commit = _submodule_commit(root)
     if commit is None:
-        warnings.append("Could not determine the submodule Git commit.")
+        message = "Could not determine the submodule Git commit."
+        (errors if expected_commit is not None else warnings).append(message)
+    elif expected_commit is not None and commit != expected_commit:
+        errors.append(
+            f"Found submodule commit {commit}; expected submodule commit {expected_commit}."
+        )
+
+    submodule_clean = _submodule_clean(root)
+    if submodule_clean is None:
+        message = "Could not determine whether the submodule checkout is clean."
+        (errors if require_clean_submodule else warnings).append(message)
+    elif require_clean_submodule and not submodule_clean:
+        errors.append(
+            "The submodule contains uncommitted changes; restore the pinned checkout "
+            "before reproduction."
+        )
 
     result = PreflightResult(
         ok=not errors,
@@ -555,6 +666,7 @@ def preflight_environment(
         cuda_device=cuda_device,
         hf_token_present=bool(resolved_token),
         gated_model_access=gated_model_access,
+        submodule_clean=submodule_clean,
         errors=tuple(errors),
         warnings=tuple(warnings),
     )
@@ -563,7 +675,8 @@ def preflight_environment(
             "Preflight completed: "
             f"ok={result.ok}, cuda={result.cuda_available}, "
             f"hf_token_present={result.hf_token_present}, "
-            f"gated_model_access={result.gated_model_access}"
+            f"gated_model_access={result.gated_model_access}, "
+            f"submodule_clean={result.submodule_clean}"
         )
         for warning in warnings:
             logger.warning(warning)
@@ -692,6 +805,134 @@ def _save_open_figures(namespace: Mapping[str, Any], output_dir: Path) -> list[P
     return artifacts
 
 
+def _has_nonblank_raster_plot(artifacts: Sequence[Path]) -> bool:
+    """Return true when at least one readable raster contains pixel variation."""
+
+    from PIL import Image
+
+    for path in artifacts:
+        if path.suffix.lower() not in {".png", ".jpg", ".jpeg", ".webp"}:
+            continue
+        try:
+            if path.stat().st_size <= 0:
+                continue
+            with Image.open(path) as image:
+                rgb = image.convert("RGB")
+                if rgb.width < 2 or rgb.height < 2:
+                    continue
+                if any(low != high for low, high in rgb.getextrema()):
+                    return True
+        except (OSError, ValueError):
+            continue
+    return False
+
+
+def _finite_number(value: Any) -> bool:
+    """Recognize a real finite metric while rejecting booleans and placeholders."""
+
+    if isinstance(value, bool):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+
+def _shape_matches(value: Any, expected: tuple[int, ...]) -> bool:
+    """Compare a JSON-style shape with one exact expected tuple."""
+
+    if not isinstance(value, (list, tuple)):
+        return False
+    try:
+        return tuple(int(size) for size in value) == expected
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+
+def _validate_readme_acceptance(
+    metrics: Mapping[str, Any], artifacts: Sequence[Path]
+) -> tuple[str, ...]:
+    """Validate exact quickstart shapes, quality, concepts, and visual evidence."""
+
+    errors: list[str] = []
+    for key, expected in EXPECTED_README_SHAPES.items():
+        if not _shape_matches(metrics.get(key), expected):
+            errors.append(
+                f"README {key} must be {list(expected)}; found {metrics.get(key)!r}."
+            )
+    if metrics.get("patch_grid") != EXPECTED_PATCH_GRID:
+        errors.append(
+            f"README patch grid must be {EXPECTED_PATCH_GRID}; "
+            f"found {metrics.get('patch_grid')!r}."
+        )
+    if metrics.get("finite_codes") is not True:
+        errors.append("README codes must all be finite.")
+    concepts = metrics.get("top_concepts")
+    if not isinstance(concepts, (list, tuple)) or not concepts:
+        errors.append("README must produce at least one ranked top concept.")
+    r2 = metrics.get("r2")
+    if not _finite_number(r2) or float(r2) < MINIMUM_RECONSTRUCTION_R2:
+        errors.append(
+            f"README R² must be finite and >= {MINIMUM_RECONSTRUCTION_R2:.2f}; "
+            f"found {r2!r}."
+        )
+    if not _has_nonblank_raster_plot(artifacts):
+        errors.append("README must produce at least one nonblank raster plot artifact.")
+    return tuple(errors)
+
+
+def _validate_notebook_acceptance(
+    metrics: Mapping[str, Any], artifacts: Sequence[Path]
+) -> tuple[str, ...]:
+    """Validate one exact 300-epoch notebook and its saved plot evidence."""
+
+    errors: list[str] = []
+    if not _shape_matches(
+        metrics.get("activation_shape"), EXPECTED_NOTEBOOK_ACTIVATION_SHAPE
+    ):
+        errors.append(
+            "Notebook activation shape must be "
+            f"{list(EXPECTED_NOTEBOOK_ACTIVATION_SHAPE)}; "
+            f"found {metrics.get('activation_shape')!r}."
+        )
+    if metrics.get("patch_grid") != EXPECTED_PATCH_GRID:
+        errors.append(
+            f"Notebook patch grid must be {EXPECTED_PATCH_GRID}; "
+            f"found {metrics.get('patch_grid')!r}."
+        )
+    if (
+        not metrics.get("training")
+        or metrics.get("finite_losses") is not True
+        or not _finite_number(metrics.get("loss"))
+    ):
+        errors.append(
+            "Notebook training metrics are missing or contain non-finite losses."
+        )
+    if (
+        metrics.get("epoch") != EXPECTED_NOTEBOOK_EPOCHS
+        or metrics.get("epochs") != EXPECTED_NOTEBOOK_EPOCHS
+    ):
+        errors.append(
+            f"Notebook training must finish epoch {EXPECTED_NOTEBOOK_EPOCHS}."
+        )
+    r2 = metrics.get("r2")
+    if not _finite_number(r2) or float(r2) < MINIMUM_RECONSTRUCTION_R2:
+        errors.append(
+            f"Notebook R² must be finite and >= {MINIMUM_RECONSTRUCTION_R2:.2f}; "
+            f"found {r2!r}."
+        )
+    concepts = metrics.get("top_concepts")
+    if not isinstance(concepts, (list, tuple)) or not concepts:
+        errors.append("Notebook must produce at least one ranked top concept.")
+    if metrics.get("error_count") != 0:
+        errors.append("Notebook outputs must contain no execution errors.")
+    if not _has_nonblank_raster_plot(artifacts):
+        errors.append(
+            "Notebook must produce at least one nonblank raster plot artifact."
+        )
+    return tuple(errors)
+
+
 def _batched_reconstruction_r2(model: Any, x: Any, *, batch_size: int = 2048) -> float:
     """Measure reconstruction R² in bounded batches to avoid a second GPU OOM."""
 
@@ -798,7 +1039,10 @@ def run_readme_quickstart(
                 "__name__": "__main__",
                 "__file__": str(readme),
             }
-            with _upstream_execution_context(root, logger):
+            with (
+                _temporary_hf_token(resolved_token),
+                _upstream_execution_context(root, logger),
+            ):
                 if executor is None:
                     exec(compile(source, str(readme), "exec"), namespace)
                 else:
@@ -809,6 +1053,12 @@ def run_readme_quickstart(
             _write_json(metrics_path, metrics, secrets)
             artifacts.append(metrics_path)
             logger.info(f"README quickstart metrics:\n{json.dumps(metrics, indent=2)}")
+            acceptance_errors = _validate_readme_acceptance(metrics, artifacts)
+            if acceptance_errors:
+                status = "failed"
+                error = "Acceptance validation failed: " + "; ".join(acceptance_errors)
+                for acceptance_error in acceptance_errors:
+                    logger.error(f"Acceptance: {acceptance_error}")
         except Exception as exc:
             status = "failed"
             error = sanitize_text(f"{type(exc).__name__}: {exc}", secrets)
@@ -1131,19 +1381,20 @@ def execute_notebook(
             ).get("name", "python3")
             # nbclient explicitly documents resources.metadata.path as the kernel
             # working directory; this lets each upstream notebook find ``bsf/``.
-            client = client_factory(
-                notebook,
-                timeout=timeout,
-                kernel_name=selected_kernel,
-                resources={"metadata": {"path": str(root)}},
-                allow_errors=False,
-                record_timing=True,
-                on_cell_execute=on_cell_execute,
-                on_cell_complete=on_cell_complete,
-                on_cell_error=on_cell_error,
-            )
-            with capture_output(logger):
-                returned = client.execute()
+            with _temporary_hf_token(resolved_token):
+                client = client_factory(
+                    notebook,
+                    timeout=timeout,
+                    kernel_name=selected_kernel,
+                    resources={"metadata": {"path": str(root)}},
+                    allow_errors=False,
+                    record_timing=True,
+                    on_cell_execute=on_cell_execute,
+                    on_cell_complete=on_cell_complete,
+                    on_cell_error=on_cell_error,
+                )
+                with capture_output(logger):
+                    returned = client.execute()
             if returned is not None:
                 executed = returned
         except Exception as exc:
@@ -1186,6 +1437,13 @@ def execute_notebook(
         _write_json(metrics_path, metrics, secrets)
         artifacts.append(metrics_path)
         logger.info(f"Notebook metrics:\n{json.dumps(metrics, indent=2)}")
+        if status == "passed":
+            acceptance_errors = _validate_notebook_acceptance(metrics, artifacts)
+            if acceptance_errors:
+                status = "failed"
+                error = "Acceptance validation failed: " + "; ".join(acceptance_errors)
+                for acceptance_error in acceptance_errors:
+                    logger.error(f"Acceptance: {acceptance_error}")
 
         if _sha256(source_path) != source_hash:
             status = "failed"
@@ -1336,6 +1594,8 @@ __all__ = [
     "DEFAULT_OUTPUT_ROOT",
     "DEFAULT_SUBMODULE_ROOT",
     "DINO_MODEL_ID",
+    "EXPECTED_DISTRIBUTION_VERSIONS",
+    "EXPECTED_SUBMODULE_COMMIT",
     "NOTEBOOK_RELATIVE_PATHS",
     "PreflightResult",
     "ReproductionResult",
