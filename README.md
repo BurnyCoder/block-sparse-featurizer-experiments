@@ -1,6 +1,6 @@
 # Block-Sparse Featurizer Experiments
 
-A local, GPU-capable workbench for exploring Block-Sparse Featurizers with reverse engineered concepts in neural network activations as sparse, multidimensional subspaces rather than single feature directions in Sparse Autoencoders.
+A local, GPU-capable workbench for exploring GoodFire's Block-Sparse Featurizers with reverse engineered concepts in neural network activations as sparse, multidimensional subspaces rather than single feature directions in Sparse Autoencoders.
 
 It exposes the Grassmannian, Group Lasso, and Vanilla block-sparse workflows through a Gradio UI. 
 
