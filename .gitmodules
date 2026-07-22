@@ -1,0 +1,3 @@
+[submodule "vendor/block-sparse-featurizer"]
+	path = vendor/block-sparse-featurizer
+	url = https://github.com/BurnyCoder/block-sparse-featurizer.git

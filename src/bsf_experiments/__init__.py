@@ -2,6 +2,6 @@
 
 from importlib.metadata import version
 
-__version__ = version("block-sparse-featurizer-experiments")
+__version__ = version("bsf-experiments")
 
 __all__ = ["__version__"]
