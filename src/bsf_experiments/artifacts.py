@@ -33,6 +33,8 @@ from .types import FeaturizerKind, ModelConfig
 
 
 CHECKPOINT_FORMAT_VERSION = 1
+DEFAULT_CHECKPOINT_STORAGE_LIMIT_BYTES = 512 * 1024 * 1024
+_MAX_CHECKPOINT_ARCHIVE_MEMBERS = 1_024
 _CHECKPOINT_FIELDS = frozenset(
     {"format_version", "input_dim", "model_config", "state_dict"}
 )
@@ -357,18 +359,69 @@ class LoadedCheckpoint:
         return model
 
 
-def load_checkpoint(path: str | Path) -> LoadedCheckpoint:
+def _preflight_checkpoint_archive(path: Path, *, max_uncompressed_bytes: int) -> None:
+    """Bound ZIP member count and expanded storage before PyTorch allocates tensors.
+
+    ``torch.save`` uses a ZIP64 container by default. Inspecting its central
+    directory first lets the local app reject compression amplification before
+    ``torch.load`` materializes any tensor storage:
+    https://docs.python.org/3/library/zipfile.html#zipfile.ZipInfo.file_size.
+    """
+
+    if (
+        isinstance(max_uncompressed_bytes, bool)
+        or not isinstance(max_uncompressed_bytes, int)
+        or max_uncompressed_bytes <= 0
+    ):
+        raise ValueError("Checkpoint storage budget must be a positive integer")
+    try:
+        with zipfile.ZipFile(path, mode="r") as archive:
+            members = archive.infolist()
+    except (OSError, zipfile.BadZipFile, zipfile.LargeZipFile) as error:
+        raise ValueError(
+            "Checkpoint must use the modern ZIP-based torch.save format"
+        ) from error
+    if not members:
+        raise ValueError("Checkpoint archive must contain at least one member")
+    if len(members) > _MAX_CHECKPOINT_ARCHIVE_MEMBERS:
+        raise ValueError(
+            "Checkpoint archive contains too many members: "
+            f"{len(members)} > {_MAX_CHECKPOINT_ARCHIVE_MEMBERS}"
+        )
+    expanded_bytes = 0
+    for member in members:
+        if member.flag_bits & 0x1:
+            raise ValueError("Encrypted checkpoint archive members are not supported")
+        if member.is_dir():
+            continue
+        expanded_bytes += member.file_size
+        if expanded_bytes > max_uncompressed_bytes:
+            raise ValueError(
+                "Checkpoint exceeds the configured uncompressed storage budget: "
+                f"{expanded_bytes} > {max_uncompressed_bytes} bytes"
+            )
+
+
+def load_checkpoint(
+    path: str | Path,
+    *,
+    max_uncompressed_bytes: int = DEFAULT_CHECKPOINT_STORAGE_LIMIT_BYTES,
+) -> LoadedCheckpoint:
     """Load and schema-check a checkpoint without allowing arbitrary Python globals.
 
     ``weights_only=True`` narrows unpickling to tensors and primitive containers.
-    PyTorch notes that it is not a complete denial-of-service defense, so callers
-    should still enforce upload-size limits before invoking this function:
+    PyTorch notes that restricted loading is not a complete denial-of-service
+    defense, so the archive is preflighted against an expanded-storage budget:
     https://docs.pytorch.org/docs/stable/notes/serialization.html#torch-load-with-weights-only-true.
     """
 
     checkpoint_path = Path(path)
     if not checkpoint_path.is_file():
         raise FileNotFoundError(f"Checkpoint does not exist: {checkpoint_path}")
+    _preflight_checkpoint_archive(
+        checkpoint_path,
+        max_uncompressed_bytes=max_uncompressed_bytes,
+    )
     payload = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
     if type(payload) is not dict:
         raise ValueError("Checkpoint must contain a plain dictionary")
@@ -397,11 +450,17 @@ def load_checkpoint(path: str | Path) -> LoadedCheckpoint:
 
 
 def restore_checkpoint(
-    path: str | Path, *, strict: bool = True
+    path: str | Path,
+    *,
+    strict: bool = True,
+    max_uncompressed_bytes: int = DEFAULT_CHECKPOINT_STORAGE_LIMIT_BYTES,
 ) -> tuple[Any, ModelConfig]:
     """Load one safe checkpoint and return its instantiated model and config."""
 
-    checkpoint = load_checkpoint(path)
+    checkpoint = load_checkpoint(
+        path,
+        max_uncompressed_bytes=max_uncompressed_bytes,
+    )
     return checkpoint.build_model(strict=strict), checkpoint.model_config
 
 

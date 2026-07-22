@@ -14,6 +14,7 @@ from bsf_experiments.config import AppConfig
 from bsf_experiments.pipeline import ExperimentPipeline
 from bsf_experiments.sessions import SessionRegistry
 from bsf_experiments.types import (
+    ConceptRecord,
     DatasetConfig,
     DatasetKind,
     ExperimentStage,
@@ -64,6 +65,51 @@ def test_session_state_is_server_side_and_phase_order_is_guarded(
     assert pipeline.snapshot(session_id).stage is ExperimentStage.EMPTY
     with pytest.raises(ValueError, match="Load image data"):
         pipeline.extract_activations(session_id)
+
+
+def test_checkpoint_replacement_clears_stale_derived_state_and_metrics(
+    pipeline: ExperimentPipeline, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A restored model never inherits analysis values produced by old weights."""
+
+    session_id = pipeline.create_session()
+    checkpoint = tmp_path / "replacement.pt"
+    checkpoint.write_bytes(b"bounded upload fixture")
+    released: list[str] = []
+    old_model = SimpleNamespace(d=3, to=released.append)
+    new_model = SimpleNamespace(d=3)
+    config = ModelConfig(n_groups=2, group_size=1, l0=1)
+    observed_budget: list[int] = []
+
+    def fake_restore(path: Path, **kwargs):
+        assert path == checkpoint
+        observed_budget.append(kwargs["max_uncompressed_bytes"])
+        return new_model, config
+
+    monkeypatch.setattr("bsf_experiments.pipeline.restore_checkpoint", fake_restore)
+    session = pipeline.registry.get(session_id)
+    with session.locked_state() as state:
+        state.model = old_model
+        state.model_config = config
+        state.preprocessed_activations = np.ones((4, 3), dtype=np.float32)
+        state.codes = np.ones((4, 2, 1), dtype=np.float32)
+        state.atoms = np.ones((2, 1, 3), dtype=np.float32)
+        state.metrics.update({"r2": 0.9, "mean_l0": 1.0, "dead_groups": 0})
+        state.concepts.append(ConceptRecord(1, 0, 4, 1.0, 2.0))
+        state.stage = ExperimentStage.ANALYZED
+
+    loaded = pipeline.load_checkpoint(session_id, checkpoint)
+
+    state = pipeline.snapshot(session_id)
+    assert loaded == config
+    assert state.model is new_model
+    assert state.stage is ExperimentStage.MODEL_READY
+    assert state.codes is None
+    assert state.atoms is None
+    assert state.metrics == {}
+    assert state.concepts == []
+    assert observed_budget == [pipeline.config.max_upload_mb * 1024 * 1024]
+    assert released == ["cpu"]
 
 
 def test_stable_session_id_is_persisted_after_expiry_and_log_reads_touch_ttl(

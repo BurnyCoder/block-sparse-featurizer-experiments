@@ -1073,6 +1073,14 @@ def build_app(
                 loaded.target_l0,
                 loaded.gain,
                 loaded.paper_version,
+                None,
+                None,
+                None,
+                [],
+                gr.update(choices=[], value=[]),
+                None,
+                None,
+                None,
                 "Checkpoint loaded; encode again before analysis.",
                 log_tail(identifier),
             )
@@ -1080,7 +1088,19 @@ def build_app(
         load_checkpoint.click(
             load_checkpoint_action,
             inputs=[browser_session, checkpoint_upload],
-            outputs=[*model_inputs, status, full_log],
+            outputs=[
+                *model_inputs,
+                live_r2,
+                live_l0,
+                dead_groups,
+                concept_table,
+                concepts,
+                concept_plot,
+                png_download,
+                pdf_download,
+                status,
+                full_log,
+            ],
             **GPU_EVENT_OPTIONS,
         )
 

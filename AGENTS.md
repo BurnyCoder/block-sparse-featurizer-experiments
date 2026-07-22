@@ -52,7 +52,8 @@ workflow logic.
   upload limits, cache expiry, and `.env` blocked path.
 - Save checkpoints as an allowlisted primitive configuration plus CPU
   `state_dict`; load with `weights_only=True`, `map_location="cpu"`, and strict
-  application schema validation.
+  application schema validation after enforcing archive-member and expanded
+  storage budgets.
 - Reject pickle-backed NPZ/object arrays and path traversal in every export.
 - Sanitize structured config, messages, exceptions, and full traceback text
   before either logger handler formats them.

@@ -311,6 +311,33 @@ def test_app_contract_contains_every_action_and_one_serial_gpu_queue(
             for dependency in stop_dependencies
         )
 
+        load_checkpoint_dependency = next(
+            dependency
+            for dependency in graph["dependencies"]
+            if (button_ids["Load Checkpoint"], "click") in dependency["targets"]
+        )
+        cleared_labels = {
+            "Live R²",
+            "Live L0",
+            "Dead groups",
+            "Every learned group",
+            "Concept group IDs",
+            "Concept manifolds and source overlays",
+        }
+        cleared_output_ids = {
+            component["id"]
+            for component in graph["components"]
+            if component["props"].get("label") in cleared_labels
+        }
+        download_output_ids = {
+            component["id"]
+            for component in graph["components"]
+            if component["props"].get("label") in {"Download PNG", "Download PDF"}
+        }
+        assert cleared_output_ids | download_output_ids <= set(
+            load_checkpoint_dependency["outputs"]
+        )
+
         for dependency in graph["dependencies"]:
             if not dependency["queue"] or dependency["targets"][0][1] == "load":
                 continue

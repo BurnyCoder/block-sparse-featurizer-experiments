@@ -710,7 +710,8 @@ class ExperimentPipeline:
         checkpoint_path = Path(path)
         if not checkpoint_path.is_file():
             raise FileNotFoundError(f"Checkpoint does not exist: {checkpoint_path}")
-        if checkpoint_path.stat().st_size > self.config.max_upload_mb * 1024 * 1024:
+        upload_limit_bytes = self.config.max_upload_mb * 1024 * 1024
+        if checkpoint_path.stat().st_size > upload_limit_bytes:
             raise ValueError("Checkpoint exceeds the configured upload limit.")
         session = self._session(session_id)
         with session.locked_state() as state:
@@ -723,7 +724,10 @@ class ExperimentPipeline:
         ):
             model = None
             try:
-                model, config = restore_checkpoint(checkpoint_path)
+                model, config = restore_checkpoint(
+                    checkpoint_path,
+                    max_uncompressed_bytes=upload_limit_bytes,
+                )
                 with session.locked_state() as state:
                     self._require_current_state(
                         session_id,
@@ -743,6 +747,7 @@ class ExperimentPipeline:
                     state.model_config = config
                     state.codes = None
                     state.atoms = None
+                    state.metrics.clear()
                     state.concepts.clear()
                     state.stage = ExperimentStage.MODEL_READY
             except Exception:

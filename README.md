@@ -188,7 +188,9 @@ Generated directories are timestamped and ignored by Git.
 
 - Checkpoints contain only an allowlisted primitive model configuration and CPU
   `state_dict`; loading uses `torch.load(..., weights_only=True,
-  map_location="cpu")` followed by exact schema validation.
+  map_location="cpu")` followed by exact schema validation. Both encoded upload
+  size and ZIP member/uncompressed-storage budgets are enforced before PyTorch
+  materializes tensor storage.
 - Array exports reject object dtype and are safe to reopen with
   `np.load(..., allow_pickle=False)`.
 - Result bundles include serializable settings, metrics, ranked concepts, and
@@ -197,7 +199,7 @@ Generated directories are timestamped and ignored by Git.
   the complete file without truncation.
 
 Treat any uploaded checkpoint as resource-consuming even with restricted
-unpickling. The configured file-size limit is enforced before loading.
+unpickling; the configured upload limit also bounds its expanded storage.
 
 ## Architecture
 

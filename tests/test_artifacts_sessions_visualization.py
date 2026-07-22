@@ -131,6 +131,23 @@ def test_checkpoint_loader_rejects_non_allowlisted_config_fields(
         load_checkpoint(path)
 
 
+def test_checkpoint_loader_rejects_archive_expansion_before_torch_load(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Compressed tensor storage cannot bypass the pre-unpickling memory budget."""
+
+    path = tmp_path / "compressed-bomb.pt"
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("checkpoint/data/0", b"x" * 2_048)
+
+    def unexpected_torch_load(*_args, **_kwargs):
+        raise AssertionError("torch.load must not run after archive preflight fails")
+
+    monkeypatch.setattr(torch, "load", unexpected_torch_load)
+    with pytest.raises(ValueError, match="uncompressed storage budget"):
+        load_checkpoint(path, max_uncompressed_bytes=1_024)
+
+
 def test_checkpoint_loader_rejects_claimed_dimensions_before_model_allocation(
     tmp_path: Path,
 ) -> None:
