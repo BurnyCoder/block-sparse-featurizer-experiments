@@ -1,44 +1,14 @@
 # Block-Sparse Featurizer Experiments
 
-A local, GPU-capable workbench for reproducing and exploring
-[BurnyCoder/block-sparse-featurizer](https://github.com/BurnyCoder/block-sparse-featurizer).
-It runs the upstream README and starter notebooks unchanged, then exposes the
-same Grassmannian, Group Lasso, and Vanilla block-sparse workflows through a
-Gradio UI. The DINO backbone is intentionally fixed to the validated
-[`facebook/dinov3-vitb16-pretrain-lvd1689m`](https://huggingface.co/facebook/dinov3-vitb16-pretrain-lvd1689m)
-checkpoint.
+A local, GPU-capable workbench for exploring Block-Sparse Featurizers with reverse engineered concepts in neural network activations as sparse, multidimensional subspaces rather than single feature directions in Sparse Autoencoders.
 
-The upstream repository is a Git submodule at
-`vendor/block-sparse-featurizer`, pinned to merge commit `583bb538`, which adds
-backward-compatible training progress and cooperative cancellation hooks. No
-generated datasets, model weights, credentials, logs, or results are committed;
-the submodule retains its small bundled rabbit fixture.
+It exposes the Grassmannian, Group Lasso, and Vanilla block-sparse workflows through a Gradio UI. 
+
+The DINO backbone is intentionally fixed to the validated [`facebook/dinov3-vitb16-pretrain-lvd1689m`](https://huggingface.co/facebook/dinov3-vitb16-pretrain-lvd1689m) checkpoint.
 
 <img width="1918" height="1078" alt="image" src="https://github.com/user-attachments/assets/bd394766-c2c5-44a9-ae50-5b17bcab2c72" />
 
 <img width="1887" height="735" alt="image" src="https://github.com/user-attachments/assets/04353cc4-09ef-4ebb-96e7-1a30a1856bfa" />
-
-## Verified reproduction
-
-Before the UI was implemented, this checkout reproduced the original upstream
-commit `0bf2d9a` on the bundled 300-rabbit dataset:
-
-| Workflow | Epochs | Final R² | Ranked concepts | Result |
-|---|---:|---:|---:|---|
-| README quickstart | 60 | 0.824 | 20 | passed |
-| Grassmannian notebook | 300 | 0.802 | 20 | passed |
-| Group Lasso notebook | 300 | 0.794 | 20 | passed |
-| Vanilla notebook | 300 | 0.821 | 20 | passed |
-
-All four workflows produced finite activations on a 14×14 patch grid, nonempty
-ranked concepts, and nonblank figures. The README and GPU integration paths
-also assert the raw `(300, 196, 768)` DINO shape; notebook summaries retain the
-flattened `(58,800, 768)` training shape. Notebook runs save executed `.ipynb`
-and HTML copies, while the README run saves its figure and metrics. All run
-artifacts and complete sanitized logs live under the ignored `outputs/runs/`
-directory. Results can vary slightly across hardware and software builds; the
-automated gates require finite outputs (including loss histories where the
-workflow emits them), at least one concept and plot, and R² ≥ 0.70.
 
 ## Requirements
 
@@ -182,6 +152,35 @@ The launcher imports the same `build_app` function as `bsf-ui`; it does not fork
 or duplicate the pipeline. The notebook embeds the local UI and preserves the
 same server-side session, output allowlist, upload limit, and single-worker
 queue behavior.
+
+## Scores
+
+On the bundled 300-rabbit dataset:
+
+| Workflow | Epochs | Final R² | Ranked concepts | Result |
+|---|---:|---:|---:|---|
+| README quickstart | 60 | 0.824 | 20 | passed |
+| Grassmannian notebook | 300 | 0.802 | 20 | passed |
+| Group Lasso notebook | 300 | 0.794 | 20 | passed |
+| Vanilla notebook | 300 | 0.821 | 20 | passed |
+
+All four workflows produce finite activations on a 14×14 patch grid, nonempty
+ranked concepts, and nonblank figures. The README and GPU integration paths
+also assert the raw `(300, 196, 768)` DINO shape; notebook summaries retain the
+flattened `(58,800, 768)` training shape. Notebook runs save executed `.ipynb`
+and HTML copies, while the README run saves its figure and metrics. All run
+artifacts and complete sanitized logs live under the ignored `outputs/runs/`
+directory. Results can vary slightly across hardware and software builds; the
+automated gates require finite outputs (including loss histories where the
+workflow emits them), at least one concept and plot, and R² ≥ 0.70.
+
+## Notes
+
+The upstream repository is a Git submodule at
+`vendor/block-sparse-featurizer`, pinned to merge commit `583bb538`, which adds
+backward-compatible training progress and cooperative cancellation hooks. No
+generated datasets, model weights, credentials, logs, or results are committed;
+the submodule retains its small bundled rabbit fixture.
 
 ## Artifacts, state, and security
 
