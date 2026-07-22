@@ -14,6 +14,10 @@ backward-compatible training progress and cooperative cancellation hooks. No
 generated datasets, model weights, credentials, logs, or results are committed;
 the submodule retains its small bundled rabbit fixture.
 
+<img width="1918" height="1078" alt="image" src="https://github.com/user-attachments/assets/bd394766-c2c5-44a9-ae50-5b17bcab2c72" />
+
+<img width="1887" height="735" alt="image" src="https://github.com/user-attachments/assets/04353cc4-09ef-4ebb-96e7-1a30a1856bfa" />
+
 ## Verified reproduction
 
 Before the UI was implemented, this checkout reproduced the original upstream
