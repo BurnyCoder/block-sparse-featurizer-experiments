@@ -1,0 +1,29 @@
+# Local secrets and environment configuration must never be committed.
+.env
+.env.*
+!.env.example
+
+# uv keeps the reproducible lockfile in Git but the local environment stays local.
+.venv/
+
+# Python, tests, notebooks, and tooling create disposable caches.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# Generated experiment data, downloaded models, logs, and reports are local artifacts.
+outputs/
+logs/
+.cache/
+*.pt
+*.pth
+*.safetensors
+
+# Editors and operating systems create machine-specific files.
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

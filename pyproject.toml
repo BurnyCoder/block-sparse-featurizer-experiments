@@ -1,0 +1,18 @@
+[project]
+name = "block-sparse-featurizer-experiments"
+version = "0.1.0"
+description = "Local reproduction tools and a Gradio workbench for block-sparse featurizers"
+readme = "README.md"
+authors = [
+    { name = "BurnyCoder", email = "happymancz@email.cz" }
+]
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+bsf-ui = "bsf_experiments.cli:ui_main"
+bsf-reproduce = "bsf_experiments.cli:reproduce_main"
+
+[build-system]
+requires = ["uv_build>=0.11.27,<0.12.0"]
+build-backend = "uv_build"
