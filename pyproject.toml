@@ -10,13 +10,13 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "bsf",
     "gradio==6.20.0",
-    "ipykernel>=7,<8",
-    "jupyterlab>=4.4,<5",
-    "nbclient>=0.10,<0.11",
-    "nbconvert>=7.17,<8",
+    "ipykernel==7.3.0",
+    "jupyterlab==4.6.2",
+    "nbclient==0.10.4",
+    "nbconvert==7.17.1",
     "pandas>=2.3,<3",
-    "pillow>=12,<13",
-    "python-dotenv>=1.2,<2",
+    "pillow==12.3.0",
+    "python-dotenv==1.2.2",
     "torch==2.13.0",
     "torchvision==0.28.0",
     "transformers==5.14.1",
@@ -42,12 +42,17 @@ bsf = { workspace = true }
 dev = [
     "pytest==9.1.1",
     "pytest-cov>=7,<8",
-    "ruff>=0.14,<0.15",
+    "ruff==0.14.14",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--capture=sys"
+# Registered markers and default selection follow pytest's documented marker API:
+# https://docs.pytest.org/en/stable/example/markers.html
+addopts = '--capture=sys -m "not gpu"'
+markers = [
+    "gpu: local integration tests requiring CUDA and authenticated gated-model access",
+]
 
 [tool.ruff]
 extend-exclude = [
