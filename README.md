@@ -1,9 +1,14 @@
 # Block-Sparse Featurizer Experiments
 
-A local, GPU-capable workbench UI for exploring Goodfire’s Block-Sparse Featurizers for interpretability that shift the sparse coding unit from an individual direction, like Sparse Autoencoders have, to a block of directions spanning a learned low-dimensional subspace. And in a toy setting, in that subspace they can recover or approximate a manifold within a learned block subspace that a conventional TopK SAE fragments across multiple atoms. And outside of toy settings, Goodfire reports evidence for coherent multidimensional variation within individual blocks, like a curve-orientation manifold in InceptionV1, lighting and shadow manifolds in DINOv3, or steerable concept manifolds in SDXL, that SAEs also fragment. ([Structuring Sparsity: Block-Sparse Featurizers Capture Visual Concept Manifolds](https://arxiv.org/abs/2606.25234))
+A local, GPU-capable workbench for exploring GoodFire’s Block-Sparse Featurizers (BSFs) for mechanistic interpretability of neural networks like image generation models, vision models, and LLMs.
 
+BSFs shift the sparse coding unit from an individual direction, like Sparse Autoencoders (SAEs) have, to a block of directions spanning a learned low-dimensional subspace. 
 
-It exposes the Grassmannian, Group Lasso, and Vanilla block-sparse workflows through a Gradio UI. 
+In a toy setting, in that subspace they can recover or approximate a manifold within a learned block subspace that a conventional TopK SAE fragments across multiple atoms. 
+
+Outside of toy settings, Goodfire reports evidence for coherent multidimensional variation within individual blocks, like a curve-orientation manifold in InceptionV1, lighting and shadow manifolds in DINOv3, or steerable concept manifolds in SDXL, that SAEs also fragment. ([Structuring Sparsity: Block-Sparse Featurizers Capture Visual Concept Manifolds](https://arxiv.org/abs/2606.25234))
+
+The workbench exposes the Grassmannian, Group Lasso, and Vanilla block-sparse workflows through a Gradio UI. 
 
 The DINO backbone is intentionally fixed to the validated [`facebook/dinov3-vitb16-pretrain-lvd1689m`](https://huggingface.co/facebook/dinov3-vitb16-pretrain-lvd1689m) checkpoint.
 
