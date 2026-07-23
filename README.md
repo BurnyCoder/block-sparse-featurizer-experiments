@@ -1,6 +1,7 @@
 # Block-Sparse Featurizer Experiments
 
-A local, GPU-capable workbench for exploring GoodFire's Block-Sparse Featurizers with reverse engineered concepts in neural network activations as sparse, multidimensional subspaces rather than single feature directions in Sparse Autoencoders.
+A local, GPU-capable workbench UI for exploring Goodfire’s Block-Sparse Featurizers for interpretability that shift the sparse coding unit from an individual direction, like Sparse Autoencoders do, to a block of directions spanning a learned low-dimensional subspace. And in a toy setting, in that subspace they can recover or approximate a manifold within a learned block subspace that a conventional TopK SAE fragments across multiple atoms. And outside of toy settings, Goodfire reports evidence for coherent multidimensional variation within individual blocks, like a curve-orientation manifold in InceptionV1, lighting and shadow manifolds in DINOv3, or steerable concept manifolds in SDXL, that SAEs also fragment. ([Structuring Sparsity: Block-Sparse Featurizers Capture Visual Concept Manifolds](https://arxiv.org/abs/2606.25234))
+
 
 It exposes the Grassmannian, Group Lasso, and Vanilla block-sparse workflows through a Gradio UI. 
 
