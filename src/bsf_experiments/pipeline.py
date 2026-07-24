@@ -10,12 +10,13 @@ Only opaque session IDs need to cross a presentation boundary.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from contextlib import contextmanager
 import copy
 import logging
 from pathlib import Path
 import threading
+from types import MappingProxyType
 from typing import Any, Iterator
 
 import numpy as np
@@ -34,6 +35,13 @@ from .data_phase import (
     load_dataset_images,
     preprocess_dino_activations,
 )
+from .hub_phase import (
+    CHECKPOINT_CATALOG,
+    HubCheckpointSpec,
+    HubDownloader,
+    download_hub_checkpoint,
+    get_hub_checkpoint_spec,
+)
 from .logging_utils import create_run_logger, log_event, redact_text
 from .model_phase import create_model
 from .reproduction import preflight_environment
@@ -45,7 +53,9 @@ from .types import (
     ExperimentStage,
     ExperimentState,
     ModelConfig,
+    ModelSource,
     PlotConfig,
+    PretrainedRecipe,
     TrainingConfig,
     TrainingEvent,
 )
@@ -68,6 +78,8 @@ class ExperimentPipeline:
         config: AppConfig | None = None,
         *,
         registry: SessionRegistry | None = None,
+        hub_catalog: Mapping[PretrainedRecipe, HubCheckpointSpec] | None = None,
+        hub_downloader: HubDownloader | None = None,
     ) -> None:
         """Create the local application service and its server-side registry."""
 
@@ -84,6 +96,12 @@ class ExperimentPipeline:
         self._stores: dict[str, ArtifactStore] = {}
         self._loggers: dict[str, logging.Logger] = {}
         self._log_paths: dict[str, Path] = {}
+        self._hub_catalog = (
+            CHECKPOINT_CATALOG
+            if hub_catalog is None
+            else MappingProxyType(dict(hub_catalog))
+        )
+        self._hub_downloader = hub_downloader
 
     def _ensure_resources(self, session_id: str) -> None:
         """Allocate one timestamped artifact directory and logger per session."""
@@ -756,6 +774,93 @@ class ExperimentPipeline:
             self._release_model(old_model)
             return config
 
+    def load_hub_checkpoint(
+        self,
+        session_id: str,
+        recipe: PretrainedRecipe | str,
+    ) -> ModelConfig:
+        """Download and atomically restore one pinned, integrity-checked model."""
+
+        spec = get_hub_checkpoint_spec(recipe, catalog=self._hub_catalog)
+        selected_recipe = PretrainedRecipe(recipe)
+        session = self._session(session_id)
+        with session.locked_state() as state:
+            expected_state = state
+            expected_matrix = state.preprocessed_activations
+            expected_model = state.model
+        phase_config = {
+            "recipe": selected_recipe.value,
+            "repo_id": spec.repo_id,
+            "revision": spec.revision,
+            "filename": spec.filename,
+        }
+        with self._phase(
+            session_id,
+            "checkpoint.hugging_face.load",
+            phase_config,
+            expected_state=expected_state,
+        ):
+            model = None
+            try:
+                checkpoint_path = download_hub_checkpoint(
+                    spec,
+                    downloader=self._hub_downloader,
+                    metadata_callback=lambda metadata: log_event(
+                        self._logger(session_id),
+                        "checkpoint.hugging_face.preflight",
+                        metadata,
+                    ),
+                )
+                model, config = restore_checkpoint(
+                    checkpoint_path,
+                    max_uncompressed_bytes=spec.max_bytes,
+                )
+                if config != spec.model_config:
+                    raise ValueError(
+                        "Hub checkpoint does not match its trusted catalog model "
+                        "configuration."
+                    )
+                if int(model.d) != spec.input_dim:
+                    raise ValueError(
+                        "Hub checkpoint input dimension does not match its trusted "
+                        f"catalog entry: {int(model.d)} != {spec.input_dim}."
+                    )
+                with session.locked_state() as state:
+                    self._require_current_state(
+                        session_id,
+                        session,
+                        state,
+                        expected_state,
+                        "Hugging Face checkpoint loading",
+                    )
+                    if (
+                        state.preprocessed_activations is not expected_matrix
+                        or state.model is not expected_model
+                    ):
+                        raise RuntimeError(
+                            "Session changed during Hugging Face checkpoint loading; "
+                            "result was discarded."
+                        )
+                    matrix = state.preprocessed_activations
+                    if matrix is not None and int(matrix.shape[1]) != int(model.d):
+                        raise ValueError(
+                            "Checkpoint input dimension does not match current "
+                            "activations."
+                        )
+                    old_model = state.model
+                    state.model = model
+                    state.model_config = config
+                    state.codes = None
+                    state.atoms = None
+                    state.metrics.clear()
+                    state.concepts.clear()
+                    state.stage = ExperimentStage.MODEL_READY
+            except Exception:
+                self._release_model(model)
+                raise
+            self._release_model(old_model)
+            return config
+
     def export_arrays(self, session_id: str) -> Path:
         """Export every available numeric array as one safe compressed NPZ."""
 
@@ -838,15 +943,39 @@ class ExperimentPipeline:
         model: ModelConfig,
         training: TrainingConfig,
         *,
+        model_source: ModelSource | str = ModelSource.TRAIN,
+        pretrained_recipe: PretrainedRecipe | str | None = None,
         progress_callback: ProgressCallback | None = None,
     ) -> list[ConceptRecord]:
         """Run the readable end-to-end phase sequence used by the UI preset action."""
 
+        try:
+            source = ModelSource(model_source)
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"Unknown model source: {model_source!r}") from error
+        selected_recipe = None
+        if source is ModelSource.HUGGING_FACE:
+            if pretrained_recipe is None:
+                raise ValueError(
+                    "Select a pretrained recipe when using the Hugging Face source."
+                )
+            try:
+                selected_recipe = PretrainedRecipe(pretrained_recipe)
+            except (TypeError, ValueError) as error:
+                raise ValueError(
+                    f"Unknown pretrained recipe: {pretrained_recipe!r}"
+                ) from error
+
         self.load_dataset(session_id, dataset)
         self.extract_activations(session_id)
         self.center_and_scale(session_id)
-        self.initialize_model(session_id, model)
-        self.train(session_id, training, progress_callback=progress_callback)
+        if source is ModelSource.TRAIN:
+            self.initialize_model(session_id, model)
+            self.train(session_id, training, progress_callback=progress_callback)
+        else:
+            # The validation above makes this non-optional in the Hub branch.
+            assert selected_recipe is not None
+            self.load_hub_checkpoint(session_id, selected_recipe)
         self.encode(session_id, device=training.device)
         self.evaluate(session_id, device=training.device)
         return self.rank(session_id)

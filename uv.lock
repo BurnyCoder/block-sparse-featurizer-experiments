@@ -208,6 +208,7 @@ source = { editable = "." }
 dependencies = [
     { name = "bsf" },
     { name = "gradio" },
+    { name = "huggingface-hub" },
     { name = "ipykernel" },
     { name = "jupyterlab" },
     { name = "nbclient" },
@@ -231,6 +232,7 @@ dev = [
 requires-dist = [
     { name = "bsf", editable = "vendor/block-sparse-featurizer" },
     { name = "gradio", specifier = "==6.20.0" },
+    { name = "huggingface-hub", specifier = "==1.24.0" },
     { name = "ipykernel", specifier = "==7.3.0" },
     { name = "jupyterlab", specifier = "==4.6.2" },
     { name = "nbclient", specifier = "==0.10.4" },

@@ -8,7 +8,7 @@ In a toy setting, in that subspace they can recover or approximate a manifold wi
 
 Outside of toy settings, Goodfire reports evidence for coherent multidimensional variation within individual blocks, like a curve-orientation manifold in InceptionV1, lighting and shadow manifolds in DINOv3, or steerable concept manifolds in SDXL, that SAEs also fragment. ([Structuring Sparsity: Block-Sparse Featurizers Capture Visual Concept Manifolds](https://arxiv.org/abs/2606.25234))
 
-The workbench exposes the Grassmannian, Group Lasso, and Vanilla block-sparse workflows through a Gradio UI. 
+The workbench exposes the Grassmannian, Group Lasso, and Vanilla block-sparse workflows through a Gradio UI. It can either train a BSF locally or reuse one of four published checkpoints from the [Block-Sparse Featurizers on DINOv3 Rabbits collection](https://huggingface.co/collections/BurnyCoder/block-sparse-featurizers-on-dinov3-rabbits-6a629047facccb1d34e808c2).
 
 The DINO backbone is intentionally fixed to the validated [`facebook/dinov3-vitb16-pretrain-lvd1689m`](https://huggingface.co/facebook/dinov3-vitb16-pretrain-lvd1689m) checkpoint.
 
@@ -22,7 +22,8 @@ The DINO backbone is intentionally fixed to the validated [`facebook/dinov3-vitb
 - [`uv`](https://docs.astral.sh/uv/) and Python 3.12
 - An NVIDIA CUDA GPU for practical DINOv3 extraction and exact reproduction
 - A Hugging Face account with the DINOv3 model terms accepted
-- A read token with access to the gated model
+- A read token with access to the gated model; the public BSF checkpoints
+  themselves can be downloaded without authentication
 
 The lockfile pins the application to Gradio 6.20, PyTorch 2.13,
 Transformers 5.14, torchvision 0.28, and the tested notebook/tooling stack.
@@ -51,11 +52,13 @@ cp .env.example .env
 chmod 600 .env
 ```
 
-Set `HF_TOKEN` in `.env` after accepting the model terms. Never paste the token
-into a command, notebook, issue, log, or committed file. The application loads
-`.env` with `python-dotenv`, keeps only a boolean “token available” flag in its
-configuration object, and redacts token/password/secret/credential/
-authorization-shaped values from structured events and tracebacks.
+Set `HF_TOKEN` in `.env` after accepting the model terms. A read token is enough
+for normal use; checkpoint maintainers need a fine-grained write token only
+while publishing. Never paste the token into a command, notebook, issue, log, or
+committed file. The application loads `.env` with `python-dotenv`, keeps only a
+boolean “token available” flag in its configuration object, and redacts
+token/password/secret/credential/authorization-shaped values from structured
+events and tracebacks.
 
 Available settings:
 
@@ -76,6 +79,17 @@ Available settings:
 uv run bsf-ui
 ```
 
+Training remains the default. To open the UI with a pretrained recipe selected:
+
+```bash
+uv run bsf-ui \
+  --model-source hugging_face \
+  --pretrained-recipe grassmannian_notebook
+```
+
+The accepted pretrained recipe values are `readme_quickstart`,
+`grassmannian_notebook`, `group_lasso_notebook`, and `vanilla_notebook`.
+
 Open [http://127.0.0.1:7860](http://127.0.0.1:7860). The server always launches
 on `127.0.0.1` with `share=False`; only generated files beneath the configured
 output directory may be downloaded. To prevent accidental filesystem exposure,
@@ -85,14 +99,23 @@ group.
 
 The fastest complete workflow is:
 
-1. Choose a preset.
+1. Choose a preset and either **Train with current controls** or **Hugging Face
+   pretrained checkpoint**.
 2. Click **Run Current Pipeline**.
 3. Select ranked concepts and click **Render Concept Plot**.
 4. Download the plot or export a result bundle.
 
 The preset action intentionally updates controls without starting expensive
-work, so settings can be inspected or reduced first. Exact notebook presets use
-300 epochs and the full dataset.
+work, so settings can be inspected or reduced first. In Train mode the model and
+training controls are applied normally. In Hugging Face mode the selected
+recipe supplies the model configuration and BSF training is skipped, but the
+input images still pass through DINO extraction, positional-mean subtraction,
+and RMS scaling before shared encoding, evaluation, and ranking. Exact notebook
+presets use 300 epochs and the full dataset when trained locally.
+
+**Load from Hugging Face** loads only the selected BSF into the current session;
+it does not load images or extract DINO activations. Hub errors stop the action
+with no silent fallback to training.
 
 ### Every UI action
 
@@ -100,7 +123,7 @@ work, so settings can be inspected or reduced first. Exact notebook presets use
 |---|---|
 | Presets | **README Quickstart**, **Grassmannian Notebook**, **Group Lasso Notebook**, **Vanilla Notebook**, **Run Current Pipeline** |
 | Data | **Check Environment**, **Load Rabbits**, **Load NPZ**, **Load Uploaded Images**, **Extract DINO Activations**, **Center & Scale**, extraction batch size |
-| Model | featurizer, group count, group size, L0, Group Lasso coefficient, target L0, gain, paper version, **Initialize Model** |
+| Model | model source, pretrained recipe, **Load from Hugging Face**, featurizer, group count, group size, L0, Group Lasso coefficient, target L0, gain, paper version, **Initialize Model** |
 | Training | epochs, learning rate, batch size, SNR, log interval, seed, device, **Train**, **Stop Training**, live loss/R²/L0/dead groups and log |
 | Features | **Encode Features**, **Reconstruct & Evaluate**, **Rank Concepts**, top-N count, **Select Top N**, searchable table containing every learned group |
 | Visualization | concept multiselect, images per concept, image columns, overlay clip percentile, saturation, low-norm drop fraction, maximum points, point size, concept gap, **Render Concept Plot**, PNG/PDF downloads |
@@ -125,6 +148,78 @@ loss helpers remain internal parts of the higher-level actions.
 
 Validation failures appear as actionable UI errors and are written to the
 sanitized run log.
+
+## Published checkpoints
+
+The public collection groups four separate model repositories:
+
+- [Grassmannian starter notebook](https://huggingface.co/BurnyCoder/bsf-dinov3-rabbits-grassmannian-notebook)
+- [Group Lasso starter notebook](https://huggingface.co/BurnyCoder/bsf-dinov3-rabbits-group-lasso-notebook)
+- [Vanilla starter notebook](https://huggingface.co/BurnyCoder/bsf-dinov3-rabbits-vanilla-notebook)
+- [README Grassmannian quickstart](https://huggingface.co/BurnyCoder/bsf-dinov3-rabbits-readme-quickstart)
+
+Each repository contains the hardened `checkpoint.pt`, a model card,
+`manifest.json`, Goodfire's MIT terms, and the applicable DINOv3 license. The
+manifest is the source of truth for that run's exact source/DINO revisions,
+input hashes, unseeded initial state, environment, duration, and measured
+metrics. Runtime identity and integrity values live in
+`hub_phase.py`'s `CHECKPOINT_CATALOG`; no revision or metric is duplicated here.
+
+The collection is a human-facing discovery surface. Runtime downloads resolve
+each repository at the catalog's full commit SHA, preflight its size, reuse the
+standard Hugging Face cache, and verify the local byte count and SHA-256 before
+the existing strict checkpoint loader runs. The application never follows a
+mutable branch or collection entry and never falls back to training after a Hub
+failure.
+
+### Maintainer release workflow
+
+`hub_release.py` separates exact training and evidence collection from remote
+publication. Prepare an unchanged detached checkout at the required upstream
+commit:
+
+```bash
+git clone https://github.com/goodfire-ai/block-sparse-featurizer \
+  outputs/upstream-goodfire-0bf2d9a
+git -C outputs/upstream-goodfire-0bf2d9a checkout --detach \
+  0bf2d9a6ae959452d57bc169374c8902135e0f02
+```
+
+`plan-train-all` prints four fresh-process command arrays. Run those commands
+individually so every recipe has a clean interpreter, or invoke `train-one`
+once per recipe:
+
+```bash
+uv run bsf-hub-release plan-train-all
+uv run bsf-hub-release train-one grassmannian-notebook
+uv run bsf-hub-release train-one group-lasso-notebook
+uv run bsf-hub-release train-one vanilla-notebook
+uv run bsf-hub-release train-one readme-quickstart
+```
+
+Only a run passing the R² gate receives a curated five-file `stage/` directory.
+Before publication planning, the release tool reopens the checkpoint through the
+strict v1 loader and cross-checks its architecture, feature width, size, and
+SHA-256 against the manifest. Review the stage, confirm the local write token
+without printing it, and generate the token-free `hf repos create`, `hf upload`,
+and `hf collections add-item` commands:
+
+```bash
+uv run --env-file .env hf auth whoami
+uv run bsf-hub-release plan-publish \
+  grassmannian-notebook \
+  --stage-dir /absolute/path/to/timestamped-run/stage
+```
+
+Execute the emitted `hf` commands with `.env` loaded, then record the final full
+repository commit and checkpoint SHA-256 in `CHECKPOINT_CATALOG`; never substitute
+`main` or `latest`. Repeat for all four repositories and verify the collection
+with:
+
+```bash
+uv run --env-file .env hf collections info \
+  BurnyCoder/block-sparse-featurizers-on-dinov3-rabbits-6a629047facccb1d34e808c2
+```
 
 ## Reproduce upstream examples
 
@@ -179,6 +274,8 @@ artifacts and complete sanitized logs live under the ignored `outputs/runs/`
 directory. Results can vary slightly across hardware and software builds; the
 automated gates require finite outputs (including loss histories where the
 workflow emits them), at least one concept and plot, and R² ≥ 0.70.
+These scores describe the reproduction suite; each unseeded Hub release records
+its own authoritative measured metrics in that repository's `manifest.json`.
 
 ## Notes
 
@@ -216,15 +313,20 @@ unpickling; the configured upload limit also bounds its expanded storage.
 flowchart TD
     U["Local user"] --> G["Gradio 6 UI"]
     U --> J["Jupyter launcher"]
-    U --> C["Reproduction CLI"]
+    U --> C["Exact reproduction CLI"]
+    U --> RC["Hub release CLI"]
     G --> P["ExperimentPipeline"]
     J --> G
     P --> S["Locked session registry\nopaque browser ID + TTL + cancellation"]
     P --> D["Data and DINO activation phase"]
-    P --> M["Model factory\nGrassmannian | Group Lasso | Vanilla"]
-    P --> T["Cancellable training phase"]
-    P --> A["Encoding, evaluation, and ranking"]
-    P --> V["Concept visualization"]
+    D --> Q{"ModelSource"}
+    Q -->|train| M["Model factory\nGrassmannian | Group Lasso | Vanilla"]
+    M --> T["Cancellable training phase"]
+    Q -->|hugging_face| H["Hub phase\npinned revision + size/hash checks + cache"]
+    H --> HF["Four public model repositories\nin one Hugging Face collection"]
+    T --> A["Shared encoding, evaluation, and ranking"]
+    H --> A
+    A --> V["Concept visualization"]
     D --> B["Pinned block-sparse-featurizer submodule"]
     M --> B
     T --> B
@@ -233,6 +335,10 @@ flowchart TD
     P --> L["Sanitized terminal + full file logs"]
     C --> B
     C --> O["Ignored executed notebooks, figures, and metrics"]
+    RC --> X["Exact detached Goodfire source"]
+    X --> ST["R²-gated five-file release stage"]
+    ST --> HC["Token-free hf CLI command plan"]
+    HC --> HF
 ```
 
 `src/bsf_experiments/pipeline.py` is the single readable orchestration wrapper.
@@ -256,8 +362,9 @@ uv run ruff format --check .
 The CPU suite covers input validation, all three featurizer factories and smoke
 training, ranking, cancellation, session races, logging redaction, checkpoint
 round trips, unsafe payload rejection, artifact exports, reproduction gates,
-and UI adapters. GitHub Actions synchronizes `uv.lock` with recursive submodules
-and runs only the offline suite; gated-model/GPU tests remain explicit local
+Hub catalog/download integrity, atomic Hub loading, release staging, and UI/CLI
+adapters. GitHub Actions synchronizes `uv.lock` with recursive submodules and
+runs only the offline suite; gated-model/GPU tests remain explicit local
 integration tests.
 
 When changing upstream research behavior, work in
@@ -268,6 +375,16 @@ outer submodule pointer. See `AGENTS.md` for the codebase-specific boundaries.
 
 - **403/gated model error:** accept the DINOv3 terms with the same Hugging Face
   account, create a read token, update `.env`, and click **Check Environment**.
+- **Unknown Hub recipe:** upgrade to a repository revision whose trusted catalog
+  includes that recipe; runtime selection never accepts arbitrary repository
+  IDs, branches, or collection entries.
+- **Hub checksum, size, or revision error:** do not bypass the catalog or enable
+  training as an automatic fallback. Verify the repository/manifest and inspect
+  the local cache with `uv run hf cache verify REPO_ID --revision COMMIT_SHA`;
+  remove only the affected cached revision before one retry.
+- **Hub unavailable:** retry later or explicitly select Train mode. A previously
+  downloaded checkpoint can be reused from the standard cache, but DINO
+  extraction may still require gated-model access.
 - **CUDA unavailable:** confirm `uv run python -c "import torch; print(torch.cuda.is_available())"`
   returns `True` and that the installed PyTorch build matches the NVIDIA driver.
 - **Out of memory:** reduce DINO extraction batch size, training batch size,
@@ -282,5 +399,12 @@ outer submodule pointer. See `AGENTS.md` for the codebase-specific boundaries.
 
 ## License and attribution
 
-This repository orchestrates the vendored upstream research project. Consult
-the upstream repository for its paper, authorship, citation, and license terms.
+This repository orchestrates the vendored
+[Goodfire block-sparse-featurizer project](https://github.com/goodfire-ai/block-sparse-featurizer);
+consult it for the paper, authorship, citation, and MIT software terms.
+
+Every published model card uses the custom `license: other` classification and
+ships both `LICENSE-goodfire.txt` and `LICENSE-dinov3.md`. DINOv3's license
+governs the backbone and associated materials. Review both included files before
+using or redistributing a checkpoint; publication on the Hub does not replace
+those terms.
