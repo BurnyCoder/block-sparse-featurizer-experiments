@@ -164,7 +164,7 @@ def test_center_and_scale_activations_matches_upstream_convention() -> None:
 def test_extraction_and_preprocessing_use_upstream_fixed_dino_contract(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The wrapper delegates extraction and defaults to upstream ``POS_MEAN``."""
+    """Runtime extraction pins DINO while preprocessing keeps upstream semantics."""
 
     from bsf import data as upstream_data
 
@@ -174,9 +174,20 @@ def test_extraction_and_preprocessing_use_upstream_fixed_dino_contract(
     calls: dict[str, object] = {}
 
     def fake_dino(
-        received: np.ndarray, *, device: str | None, batch_size: int
+        received: np.ndarray,
+        *,
+        device: str | None,
+        batch_size: int,
+        model_id: str,
+        revision: str,
     ) -> np.ndarray:
-        calls.update(images=received, device=device, batch_size=batch_size)
+        calls.update(
+            images=received,
+            device=device,
+            batch_size=batch_size,
+            model_id=model_id,
+            revision=revision,
+        )
         return raw
 
     monkeypatch.setattr(upstream_data, "POS_MEAN", positional_mean)
@@ -189,6 +200,8 @@ def test_extraction_and_preprocessing_use_upstream_fixed_dino_contract(
     assert calls["images"] is images
     assert calls["device"] is None
     assert calls["batch_size"] == 2
+    assert calls["model_id"] == "facebook/dinov3-vitb16-pretrain-lvd1689m"
+    assert calls["revision"] == "5931719e67bbdb9737e363e781fb0c67687896bc"
     expected_centered = (raw - positional_mean).reshape(-1, 3)
     expected = expected_centered / np.sqrt(np.square(expected_centered).sum(1).mean())
     expected *= np.sqrt(3)

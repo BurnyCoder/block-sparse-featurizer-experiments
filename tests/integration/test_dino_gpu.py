@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 import torch
 
+from bsf_experiments.backbone_identity import DINO_MODEL_ID, DINO_REVISION
 from bsf_experiments.config import load_app_config
 from bsf_experiments.data_phase import (
     extract_dino_activations,
@@ -41,11 +42,13 @@ def _require_gated_gpu_environment() -> None:
     # Hugging Face documents this as a metadata-only access probe, avoiding a
     # large download when the gated grant is absent:
     # https://huggingface.co/docs/huggingface_hub/package_reference/file_download#get-hf-file-metadata
-    from bsf.data import DINO_ID
     from huggingface_hub import get_hf_file_metadata, hf_hub_url
 
     try:
-        get_hf_file_metadata(hf_hub_url(DINO_ID, "config.json"), token=token)
+        get_hf_file_metadata(
+            hf_hub_url(DINO_MODEL_ID, "config.json", revision=DINO_REVISION),
+            token=token,
+        )
     # The actionable skip deliberately omits credential-bearing exception details.
     except Exception:
         pytest.skip(

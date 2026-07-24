@@ -15,6 +15,8 @@ workflow logic.
 
 - `types.py`: framework-neutral configuration, `ModelSource`/
   `PretrainedRecipe`, state, event, and concept records.
+- `backbone_identity.py`: immutable DINOv3 model ID and release revision shared
+  by runtime extraction, reproduction preflight, and release evidence.
 - `config.py`: non-secret `.env` loading and local-only settings validation.
 - `data_phase.py`: RGB ingestion, fixed DINO extraction, centering, and scaling.
 - `model_phase.py`: validated factory for the three upstream featurizers.
@@ -66,7 +68,8 @@ workflow logic.
   plus SHA-256 before strict loading.
 - Hub-mode failures must remain visible and must never silently invoke local
   training. Public checkpoint downloads must not require an explicit token;
-  gated DINO extraction continues to use environment-based authentication.
+  gated DINO extraction continues to use environment-based authentication and
+  must pass the shared full revision to both Transformers loaders.
 - Reject pickle-backed NPZ/object arrays and path traversal in every export.
 - Sanitize structured config, messages, exceptions, and full traceback text
   before either logger handler formats them.

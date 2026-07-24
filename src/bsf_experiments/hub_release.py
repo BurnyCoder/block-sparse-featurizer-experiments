@@ -49,6 +49,7 @@ from .artifacts import (
     restore_checkpoint,
     save_checkpoint,
 )
+from .backbone_identity import DINO_MODEL_ID, DINO_REVISION
 from .reproduction import (
     TimestampedLogger,
     capture_output,
@@ -67,8 +68,8 @@ APPLICATION_REPOSITORY = (
     "https://github.com/BurnyCoder/block-sparse-featurizer-experiments"
 )
 UPSTREAM_COMMIT = "0bf2d9a6ae959452d57bc169374c8902135e0f02"
-DINO_MODEL_ID = "facebook/dinov3-vitb16-pretrain-lvd1689m"
-EXPECTED_DINO_REVISION = "5931719e67bbdb9737e363e781fb0c67687896bc"
+# Retain the release-specific public name used by manifests and existing callers.
+EXPECTED_DINO_REVISION = DINO_REVISION
 EXPECTED_GOODFIRE_LICENSE_SHA256 = (
     "8f203fe135347c3a1c997bfdeab1ddee5e97f02662edad135d19e63333d76961"
 )

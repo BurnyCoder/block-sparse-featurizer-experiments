@@ -10,7 +10,12 @@ Outside of toy settings, Goodfire reports evidence for coherent multidimensional
 
 The workbench exposes the Grassmannian, Group Lasso, and Vanilla block-sparse workflows through a Gradio UI. It can either train a BSF locally or reuse one of four published checkpoints from the [Block-Sparse Featurizers on DINOv3 Rabbits collection](https://huggingface.co/collections/BurnyCoder/block-sparse-featurizers-on-dinov3-rabbits-6a629047facccb1d34e808c2).
 
-The DINO backbone is intentionally fixed to the validated [`facebook/dinov3-vitb16-pretrain-lvd1689m`](https://huggingface.co/facebook/dinov3-vitb16-pretrain-lvd1689m) checkpoint.
+The DINO backbone is intentionally fixed to
+[`facebook/dinov3-vitb16-pretrain-lvd1689m`](https://huggingface.co/facebook/dinov3-vitb16-pretrain-lvd1689m/tree/5931719e67bbdb9737e363e781fb0c67687896bc)
+at full revision `5931719e67bbdb9737e363e781fb0c67687896bc`. Runtime extraction
+passes that revision to both the image processor and model loader, keeping new
+activations compatible with the four published BSF checkpoints if the Hub
+repository's default branch changes.
 
 <img width="1918" height="1078" alt="image" src="https://github.com/user-attachments/assets/bd394766-c2c5-44a9-ae50-5b17bcab2c72" />
 
@@ -109,13 +114,15 @@ The preset action intentionally updates controls without starting expensive
 work, so settings can be inspected or reduced first. In Train mode the model and
 training controls are applied normally. In Hugging Face mode the selected
 recipe supplies the model configuration and BSF training is skipped, but the
-input images still pass through DINO extraction, positional-mean subtraction,
-and RMS scaling before shared encoding, evaluation, and ranking. Exact notebook
-presets use 300 epochs and the full dataset when trained locally.
+input images still pass through the release-pinned DINO extraction,
+positional-mean subtraction, and RMS scaling before shared encoding, evaluation,
+and ranking. Exact notebook presets use 300 epochs and the full dataset when
+trained locally.
 
 **Load from Hugging Face** loads only the selected BSF into the current session;
-it does not load images or extract DINO activations. Hub errors stop the action
-with no silent fallback to training.
+it does not load images or extract DINO activations. Hub errors leave current
+state intact, put a redacted explanation in **Status**, and stop the action with
+no silent fallback to training.
 
 ### Every UI action
 
@@ -168,9 +175,10 @@ metrics. Runtime identity and integrity values live in
 The collection is a human-facing discovery surface. Runtime downloads resolve
 each repository at the catalog's full commit SHA, preflight its size, reuse the
 standard Hugging Face cache, and verify the local byte count and SHA-256 before
-the existing strict checkpoint loader runs. The application never follows a
-mutable branch or collection entry and never falls back to training after a Hub
-failure.
+the existing strict checkpoint loader runs. DINO extraction separately uses the
+same full backbone revision recorded in every release manifest. The application
+never follows a mutable branch or collection entry and never falls back to
+training after a Hub failure.
 
 ### Maintainer release workflow
 
@@ -280,10 +288,11 @@ its own authoritative measured metrics in that repository's `manifest.json`.
 ## Notes
 
 The upstream repository is a Git submodule at
-`vendor/block-sparse-featurizer`, pinned to merge commit `583bb538`, which adds
-backward-compatible training progress and cooperative cancellation hooks. No
-generated datasets, model weights, credentials, logs, or results are committed;
-the submodule retains its small bundled rabbit fixture.
+`vendor/block-sparse-featurizer`, pinned to merge commit `05690217`, which adds
+backward-compatible training progress, cooperative cancellation hooks, and an
+optional DINO revision forwarded to both Transformers loaders. No generated
+datasets, model weights, credentials, logs, or results are committed; the
+submodule retains its small bundled rabbit fixture.
 
 ## Artifacts, state, and security
 
@@ -318,7 +327,7 @@ flowchart TD
     G --> P["ExperimentPipeline"]
     J --> G
     P --> S["Locked session registry\nopaque browser ID + TTL + cancellation"]
-    P --> D["Data and DINO activation phase"]
+    P --> D["Data and DINO activation phase\nfull revision pin"]
     D --> Q{"ModelSource"}
     Q -->|train| M["Model factory\nGrassmannian | Group Lasso | Vanilla"]
     M --> T["Cancellable training phase"]
@@ -362,10 +371,10 @@ uv run ruff format --check .
 The CPU suite covers input validation, all three featurizer factories and smoke
 training, ranking, cancellation, session races, logging redaction, checkpoint
 round trips, unsafe payload rejection, artifact exports, reproduction gates,
-Hub catalog/download integrity, atomic Hub loading, release staging, and UI/CLI
-adapters. GitHub Actions synchronizes `uv.lock` with recursive submodules and
-runs only the offline suite; gated-model/GPU tests remain explicit local
-integration tests.
+Hub catalog/download integrity, immutable DINO revision propagation, atomic Hub
+loading, release staging, and UI/CLI adapters. GitHub Actions synchronizes
+`uv.lock` with recursive submodules and runs only the offline suite;
+gated-model/GPU tests remain explicit local integration tests.
 
 When changing upstream research behavior, work in
 `vendor/block-sparse-featurizer` first, merge its PR, then update and review the
