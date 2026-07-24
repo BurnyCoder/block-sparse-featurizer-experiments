@@ -8,7 +8,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from bsf_experiments.cli import parse_reproduce_args, reproduce_main
+from bsf_experiments.cli import (
+    parse_reproduce_args,
+    parse_ui_args,
+    reproduce_main,
+    ui_main,
+)
+from bsf_experiments.types import ModelSource, PretrainedRecipe
 
 
 def test_reproduce_cli_forwards_options_and_returns_failed_exit(
@@ -60,5 +66,50 @@ def test_reproduce_cli_rejects_nonpositive_timeout() -> None:
 
     with pytest.raises(SystemExit) as exit_info:
         parse_reproduce_args(["--timeout", "0"])
+
+    assert exit_info.value.code == 2
+
+
+def test_ui_cli_defaults_preserve_local_training() -> None:
+    """The existing no-argument launcher still opens in local training mode."""
+
+    arguments = parse_ui_args([])
+
+    assert arguments.model_source is ModelSource.TRAIN
+    assert arguments.pretrained_recipe is PretrainedRecipe.README_QUICKSTART
+
+
+def test_ui_cli_forwards_hub_startup_selection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The launcher can preselect one pinned Hub recipe without an auth flag."""
+
+    captured: dict[str, object] = {}
+
+    def fake_launch(**options: object) -> None:
+        captured.update(options)
+
+    monkeypatch.setattr("bsf_experiments.ui.launch_app", fake_launch)
+
+    ui_main(
+        [
+            "--model-source",
+            "hugging_face",
+            "--pretrained-recipe",
+            "group_lasso_notebook",
+        ]
+    )
+
+    assert captured == {
+        "default_model_source": ModelSource.HUGGING_FACE,
+        "default_pretrained_recipe": PretrainedRecipe.GROUP_LASSO_NOTEBOOK,
+    }
+
+
+def test_ui_cli_rejects_unknown_recipe() -> None:
+    """Argparse rejects identifiers outside the static pretrained catalog."""
+
+    with pytest.raises(SystemExit) as exit_info:
+        parse_ui_args(["--pretrained-recipe", "latest"])
 
     assert exit_info.value.code == 2

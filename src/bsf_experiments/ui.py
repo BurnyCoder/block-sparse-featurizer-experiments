@@ -27,7 +27,9 @@ from .types import (
     DatasetKind,
     FeaturizerKind,
     ModelConfig,
+    ModelSource,
     PlotConfig,
+    PretrainedRecipe,
     TrainingConfig,
     TrainingEvent,
 )
@@ -37,6 +39,21 @@ FIXED_DINO_MODEL = "facebook/dinov3-vitb16-pretrain-lvd1689m"
 CONCEPT_HEADERS = ["rank", "group_id", "firing_count", "firing_rate", "energy"]
 GPU_EVENT_OPTIONS = {"concurrency_id": "gpu", "concurrency_limit": 1}
 _WORKER_POLL_SECONDS = 0.2
+PRETRAINED_RECIPE_CHOICES = [
+    ("README Quickstart", PretrainedRecipe.README_QUICKSTART.value),
+    ("Grassmannian Notebook", PretrainedRecipe.GRASSMANNIAN_NOTEBOOK.value),
+    ("Group Lasso Notebook", PretrainedRecipe.GROUP_LASSO_NOTEBOOK.value),
+    ("Vanilla Notebook", PretrainedRecipe.VANILLA_NOTEBOOK.value),
+]
+PRESET_RECIPES = {
+    "readme": PretrainedRecipe.README_QUICKSTART,
+    "grassmannian_notebook": PretrainedRecipe.GRASSMANNIAN_NOTEBOOK,
+    "group_lasso_notebook": PretrainedRecipe.GROUP_LASSO_NOTEBOOK,
+    "vanilla_notebook": PretrainedRecipe.VANILLA_NOTEBOOK,
+}
+PRETRAINED_PRESET_NAMES = {
+    recipe: preset_name for preset_name, recipe in PRESET_RECIPES.items()
+}
 
 
 def normalize_upload_paths(value: Any) -> tuple[Path, ...]:
@@ -157,6 +174,21 @@ def preset_control_values(name: str) -> tuple[Any, ...]:
         training.log_every,
         training.seed,
         training.device,
+    )
+
+
+def _model_control_values(model: ModelConfig) -> tuple[Any, ...]:
+    """Return model configuration fields in the rendered component order."""
+
+    return (
+        model.kind.value,
+        model.n_groups,
+        model.group_size,
+        model.l0,
+        model.coef,
+        model.target_l0,
+        model.gain,
+        model.paper_version,
     )
 
 
@@ -336,8 +368,38 @@ class WorkbenchController:
         training: TrainingConfig,
         *,
         extraction_batch_size: int,
-    ) -> Iterator[tuple[str, Any, Any, Any, list[list[Any]], Any, str]]:
-        """Run the current controls end-to-end and stream phase/training progress."""
+        model_source: ModelSource | str = ModelSource.TRAIN,
+        pretrained_recipe: PretrainedRecipe | str | None = None,
+    ) -> Iterator[
+        tuple[
+            str,
+            Any,
+            Any,
+            Any,
+            list[list[Any]],
+            Any,
+            str,
+            ModelConfig | None,
+        ]
+    ]:
+        """Run either training or a pinned Hub load, then shared analysis phases."""
+
+        try:
+            source = ModelSource(model_source)
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"Unknown model source: {model_source!r}") from error
+        selected_recipe = None
+        if source is ModelSource.HUGGING_FACE:
+            if pretrained_recipe is None:
+                raise ValueError(
+                    "Select a pretrained recipe when using the Hugging Face source."
+                )
+            try:
+                selected_recipe = PretrainedRecipe(pretrained_recipe)
+            except (TypeError, ValueError) as error:
+                raise ValueError(
+                    f"Unknown pretrained recipe: {pretrained_recipe!r}"
+                ) from error
 
         messages: Queue[tuple[str, Any] | Exception | None] = Queue()
 
@@ -369,19 +431,30 @@ class WorkbenchController:
                 if state.preprocessed_activations is None:
                     messages.put(("status", "Centering and scaling activations…"))
                     self.pipeline.center_and_scale(session_id)
-                messages.put(("status", "Initializing featurizer…"))
-                self.pipeline.initialize_model(session_id, model)
-                messages.put(("status", "Training…"))
-                self.pipeline.train(
-                    session_id,
-                    training,
-                    progress_callback=progress,
-                )
-                if self.pipeline.snapshot(session_id).metrics.get("cancelled"):
-                    messages.put(
-                        ("status", "Pipeline stopped after training cancellation.")
+                if source is ModelSource.TRAIN:
+                    messages.put(("status", "Initializing featurizer…"))
+                    self.pipeline.initialize_model(session_id, model)
+                    messages.put(("status", "Training…"))
+                    self.pipeline.train(
+                        session_id,
+                        training,
+                        progress_callback=progress,
                     )
-                    return
+                    if self.pipeline.snapshot(session_id).metrics.get("cancelled"):
+                        messages.put(
+                            ("status", "Pipeline stopped after training cancellation.")
+                        )
+                        return
+                else:
+                    # Source validation makes this non-optional in the Hub branch.
+                    assert selected_recipe is not None
+                    messages.put(
+                        (
+                            "status",
+                            "Loading pretrained checkpoint from Hugging Face…",
+                        )
+                    )
+                    self.pipeline.load_hub_checkpoint(session_id, selected_recipe)
                 messages.put(("status", "Encoding and evaluating…"))
                 self.pipeline.encode(session_id, device=training.device)
                 self.pipeline.evaluate(session_id, device=training.device)
@@ -436,6 +509,7 @@ class WorkbenchController:
                     rows,
                     selected,
                     self.pipeline.read_log(session_id),
+                    state.model_config,
                 )
         finally:
             self._finish_worker(
@@ -449,6 +523,10 @@ def build_app(
     config: AppConfig | None = None,
     *,
     pipeline: ExperimentPipeline | None = None,
+    default_model_source: ModelSource | str = ModelSource.TRAIN,
+    default_pretrained_recipe: PretrainedRecipe | str = (
+        PretrainedRecipe.README_QUICKSTART
+    ),
 ) -> Any:
     """Build and return the local Gradio Blocks app without launching a server."""
 
@@ -460,6 +538,13 @@ def build_app(
     service = pipeline or ExperimentPipeline(settings)
     controller = WorkbenchController(service)
     cache_interval = max(60, min(settings.session_ttl_seconds, 3_600))
+    initial_model_source = ModelSource(default_model_source)
+    initial_pretrained_recipe = PretrainedRecipe(default_pretrained_recipe)
+    initial_model_config = (
+        get_preset(PRETRAINED_PRESET_NAMES[initial_pretrained_recipe]).model
+        if initial_model_source is ModelSource.HUGGING_FACE
+        else get_preset("readme").model
+    )
 
     def session_id(value: str | None) -> str:
         """Resolve a stale/empty browser ID without storing any server object."""
@@ -548,27 +633,79 @@ def build_app(
             )
 
         with gr.Tab("Model"):
-            gr.Markdown("Choose one of the three BSF variants supported upstream.")
+            gr.Markdown(
+                "Train from the controls below or load one immutable, verified "
+                "checkpoint from the trusted Hugging Face catalog."
+            )
+            with gr.Row():
+                # Gradio accepts ``(label, value)`` dropdown/radio choices, so
+                # stable enum values stay separate from readable browser labels:
+                # https://www.gradio.app/main/docs/gradio/dropdown
+                model_source = gr.Radio(
+                    choices=[
+                        ("Train with current controls", ModelSource.TRAIN.value),
+                        (
+                            "Hugging Face pretrained checkpoint",
+                            ModelSource.HUGGING_FACE.value,
+                        ),
+                    ],
+                    value=initial_model_source.value,
+                    label="Model source",
+                )
+                pretrained_recipe = gr.Dropdown(
+                    choices=PRETRAINED_RECIPE_CHOICES,
+                    value=initial_pretrained_recipe.value,
+                    label="Pretrained recipe",
+                )
+                load_hub_checkpoint = gr.Button(
+                    "Load from Hugging Face",
+                    variant="huggingface",
+                )
             with gr.Row():
                 featurizer = gr.Dropdown(
                     choices=[kind.value for kind in FeaturizerKind],
-                    value=FeaturizerKind.GRASSMANNIAN.value,
+                    value=initial_model_config.kind.value,
                     label="Featurizer",
                 )
                 n_groups = gr.Number(
-                    value=256, precision=0, minimum=1, label="Group count"
+                    value=initial_model_config.n_groups,
+                    precision=0,
+                    minimum=1,
+                    label="Group count",
                 )
                 group_size = gr.Number(
-                    value=3, precision=0, minimum=1, label="Group size"
+                    value=initial_model_config.group_size,
+                    precision=0,
+                    minimum=1,
+                    label="Group size",
                 )
-                l0 = gr.Number(value=16, precision=0, minimum=1, label="L0")
+                l0 = gr.Number(
+                    value=initial_model_config.l0,
+                    precision=0,
+                    minimum=1,
+                    label="L0",
+                )
             with gr.Row():
-                coef = gr.Number(value=1e-2, minimum=0, label="Group Lasso coefficient")
-                target_l0 = gr.Number(
-                    value=16, precision=0, minimum=1, label="Target L0"
+                coef = gr.Number(
+                    value=initial_model_config.coef,
+                    minimum=0,
+                    label="Group Lasso coefficient",
                 )
-                gain = gr.Number(value=10.0, minimum=0, label="Target controller gain")
-                paper_version = gr.Checkbox(value=False, label="Paper version")
+                target_l0 = gr.Number(
+                    value=initial_model_config.target_l0,
+                    precision=0,
+                    minimum=1,
+                    label="Target L0",
+                )
+                gain = gr.Number(
+                    value=initial_model_config.gain,
+                    minimum=0,
+                    label="Target controller gain",
+                )
+                paper_version = gr.Checkbox(
+                    value=initial_model_config.paper_version,
+                    label="Paper version",
+                )
                 initialize_model = gr.Button("Initialize Model", variant="primary")
 
         with gr.Tab("Training"):
@@ -711,9 +848,12 @@ def build_app(
             (preset_vanilla, "vanilla_notebook"),
         ):
             button.click(
-                fn=lambda preset_name=name: preset_control_values(preset_name),
+                fn=lambda preset_name=name: (
+                    *preset_control_values(preset_name),
+                    PRESET_RECIPES[preset_name].value,
+                ),
                 inputs=[],
-                outputs=preset_outputs,
+                outputs=[*preset_outputs, pretrained_recipe],
                 queue=False,
                 api_visibility="private",
             )
@@ -1049,6 +1189,48 @@ def build_app(
             **GPU_EVENT_OPTIONS,
         )
 
+        model_load_outputs = [
+            *model_inputs,
+            live_r2,
+            live_l0,
+            dead_groups,
+            concept_table,
+            concepts,
+            concept_plot,
+            png_download,
+            pdf_download,
+            checkpoint_download,
+            result_download,
+            arrays_download,
+            status,
+            full_log,
+        ]
+
+        def loaded_model_values(
+            loaded: ModelConfig,
+            *,
+            message: str,
+            identifier: str,
+        ) -> tuple[Any, ...]:
+            """Synchronize controls and clear every output derived from old weights."""
+
+            return (
+                *_model_control_values(loaded),
+                None,
+                None,
+                None,
+                [],
+                gr.update(choices=[], value=[]),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                message,
+                log_tail(identifier),
+            )
+
         def load_checkpoint_action(
             raw_session: str | None, upload: Any
         ) -> tuple[Any, ...]:
@@ -1064,43 +1246,44 @@ def build_app(
                 loaded = service.load_checkpoint(identifier, paths[0])
             except Exception as error:
                 ui_error(error)
-            return (
-                loaded.kind.value,
-                loaded.n_groups,
-                loaded.group_size,
-                loaded.l0,
-                loaded.coef,
-                loaded.target_l0,
-                loaded.gain,
-                loaded.paper_version,
-                None,
-                None,
-                None,
-                [],
-                gr.update(choices=[], value=[]),
-                None,
-                None,
-                None,
-                "Checkpoint loaded; encode again before analysis.",
-                log_tail(identifier),
+            return loaded_model_values(
+                loaded,
+                message="Checkpoint loaded; encode again before analysis.",
+                identifier=identifier,
             )
 
         load_checkpoint.click(
             load_checkpoint_action,
             inputs=[browser_session, checkpoint_upload],
-            outputs=[
-                *model_inputs,
-                live_r2,
-                live_l0,
-                dead_groups,
-                concept_table,
-                concepts,
-                concept_plot,
-                png_download,
-                pdf_download,
-                status,
-                full_log,
-            ],
+            outputs=model_load_outputs,
+            **GPU_EVENT_OPTIONS,
+        )
+
+        def load_hub_checkpoint_action(
+            raw_session: str | None,
+            recipe_value: str,
+        ) -> tuple[Any, ...]:
+            """Load one catalog-pinned Hub checkpoint without a training fallback."""
+
+            identifier = session_id(raw_session)
+            try:
+                recipe = PretrainedRecipe(recipe_value)
+                loaded = service.load_hub_checkpoint(identifier, recipe)
+            except Exception as error:
+                ui_error(error)
+            return loaded_model_values(
+                loaded,
+                message=(
+                    f"Loaded {recipe.value} from Hugging Face; "
+                    "encode again before analysis."
+                ),
+                identifier=identifier,
+            )
+
+        load_hub_checkpoint.click(
+            load_hub_checkpoint_action,
+            inputs=[browser_session, pretrained_recipe],
+            outputs=model_load_outputs,
             **GPU_EVENT_OPTIONS,
         )
 
@@ -1189,14 +1372,31 @@ def build_app(
         def run_pipeline_action(
             raw_session: str | None,
             extraction_batch: Any,
+            source_value: str,
+            recipe_value: str,
             *values: Any,
         ) -> Iterator[tuple[Any, ...]]:
-            """Build typed current controls and stream the full pipeline."""
+            """Build typed controls and stream training or pinned Hub loading."""
 
             identifier = session_id(raw_session)
             try:
-                model_value = _model_config(*values[: len(model_inputs)])
-                training_value = _training_config(*values[len(model_inputs) :])
+                source = ModelSource(source_value)
+                recipe = None
+                if source is ModelSource.HUGGING_FACE:
+                    if recipe_value is None:
+                        raise ValueError(
+                            "Select a pretrained recipe when using the "
+                            "Hugging Face source."
+                        )
+                    recipe = PretrainedRecipe(recipe_value)
+                    # Hub mode consumes only the selected immutable architecture
+                    # and shared inference device. Empty train-only form fields
+                    # must not prevent checkpoint reuse.
+                    model_value = get_preset(PRETRAINED_PRESET_NAMES[recipe]).model
+                    training_value = TrainingConfig(device=str(values[-1]))
+                else:
+                    model_value = _model_config(*values[: len(model_inputs)])
+                    training_value = _training_config(*values[len(model_inputs) :])
                 for update in controller.pipeline_stream(
                     identifier,
                     model_value,
@@ -1204,9 +1404,33 @@ def build_app(
                     extraction_batch_size=_integer(
                         extraction_batch, "Extraction batch size"
                     ),
+                    model_source=source,
+                    pretrained_recipe=recipe,
                 ):
-                    status_value, r2, l0_value, dead, rows, selected, log_value = update
+                    (
+                        status_value,
+                        r2,
+                        l0_value,
+                        dead,
+                        rows,
+                        selected,
+                        log_value,
+                        active_model_config,
+                    ) = update
                     choices = [int(row[1]) for row in rows]
+                    synchronize_hub_model = (
+                        source is ModelSource.HUGGING_FACE
+                        and active_model_config is not None
+                        and (
+                            status_value == "Encoding and evaluating…"
+                            or status_value.startswith("Pipeline complete:")
+                        )
+                    )
+                    model_updates = (
+                        _model_control_values(active_model_config)
+                        if synchronize_hub_model
+                        else tuple(gr.skip() for _component in model_inputs)
+                    )
                     yield (
                         status_value,
                         r2,
@@ -1215,6 +1439,13 @@ def build_app(
                         rows,
                         gr.update(choices=choices, value=selected),
                         log_value,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        *model_updates,
                     )
             except Exception as error:
                 ui_error(error)
@@ -1224,6 +1455,8 @@ def build_app(
             inputs=[
                 browser_session,
                 extraction_batch_size,
+                model_source,
+                pretrained_recipe,
                 *model_inputs,
                 *training_inputs,
             ],
@@ -1235,6 +1468,13 @@ def build_app(
                 concept_table,
                 concepts,
                 full_log,
+                concept_plot,
+                png_download,
+                pdf_download,
+                checkpoint_download,
+                result_download,
+                arrays_download,
+                *model_inputs,
             ],
             **GPU_EVENT_OPTIONS,
         )
@@ -1260,12 +1500,23 @@ def build_app(
     return demo
 
 
-def launch_app(config: AppConfig | None = None) -> None:
-    """Launch on loopback only with sharing disabled and bounded file exposure."""
+def launch_app(
+    config: AppConfig | None = None,
+    *,
+    default_model_source: ModelSource | str = ModelSource.TRAIN,
+    default_pretrained_recipe: PretrainedRecipe | str = (
+        PretrainedRecipe.README_QUICKSTART
+    ),
+) -> None:
+    """Launch locally with optional CLI-selected initial model controls."""
 
     settings = config or load_app_config()
     settings.output_dir.mkdir(parents=True, exist_ok=True)
-    app = build_app(settings)
+    app = build_app(
+        settings,
+        default_model_source=default_model_source,
+        default_pretrained_recipe=default_pretrained_recipe,
+    )
     # Shared concurrency IDs serialize all GPU-capable actions at one worker.
     app.queue(default_concurrency_limit=1)
     app.launch(
@@ -1283,6 +1534,7 @@ __all__ = [
     "CONCEPT_HEADERS",
     "FIXED_DINO_MODEL",
     "GPU_EVENT_OPTIONS",
+    "PRETRAINED_RECIPE_CHOICES",
     "WorkbenchController",
     "build_app",
     "format_training_event",
