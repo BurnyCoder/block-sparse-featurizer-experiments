@@ -13,11 +13,16 @@ workflow logic.
 
 ## Module map
 
-- `types.py`: framework-neutral configuration, state, event, and concept records.
+- `types.py`: framework-neutral configuration, `ModelSource`/
+  `PretrainedRecipe`, state, event, and concept records.
 - `config.py`: non-secret `.env` loading and local-only settings validation.
 - `data_phase.py`: RGB ingestion, fixed DINO extraction, centering, and scaling.
 - `model_phase.py`: validated factory for the three upstream featurizers.
 - `training_phase.py`: deterministic adapter around upstream training hooks.
+- `hub_phase.py`: trusted immutable Hub catalog, preflight, cache, and integrity
+  checks.
+- `hub_release.py`: exact unseeded upstream training, evidence, release gating,
+  curated staging, and reviewable `hf` CLI publication plans.
 - `analysis_phase.py`: encoding, reconstruction metrics, atoms, and ranking.
 - `visualization_phase.py`: validation plus upstream `plot_concepts` delegation.
 - `artifacts.py`: safe checkpoints, arrays, figures, and result bundles.
@@ -39,7 +44,8 @@ workflow logic.
 - Run `uv run ruff check .` and `uv run ruff format --check .` before review.
 - Run `uv run pytest -m gpu` only when CUDA and gated DINOv3 access are expected.
 - Exercise changed UI flows through the local browser, including a validation
-  failure, cancellation/reset, downloads, and a fresh checkpoint reload.
+  failure, cancellation/reset, Train and Hugging Face sources, downloads, and a
+  fresh checkpoint reload.
 
 ## Design and security rules
 
@@ -54,6 +60,13 @@ workflow logic.
   `state_dict`; load with `weights_only=True`, `map_location="cpu"`, and strict
   application schema validation after enforcing archive-member and expanded
   storage budgets.
+- Treat the Hugging Face collection as discovery metadata only. Resolve
+  checkpoints through the static `PretrainedRecipe` catalog at full commit
+  hashes, preflight remote size, reuse the standard cache, and verify local size
+  plus SHA-256 before strict loading.
+- Hub-mode failures must remain visible and must never silently invoke local
+  training. Public checkpoint downloads must not require an explicit token;
+  gated DINO extraction continues to use environment-based authentication.
 - Reject pickle-backed NPZ/object arrays and path traversal in every export.
 - Sanitize structured config, messages, exceptions, and full traceback text
   before either logger handler formats them.
@@ -67,6 +80,11 @@ workflow logic.
 - Update `README.md` whenever commands, controls, settings, artifacts, public
   workflows, dependencies, reproduction gates, or architecture change.
 - Keep the Mermaid graph aligned with the real pipeline and module boundaries.
+- Keep release metrics and immutable repository/checkpoint identities in each
+  model's `manifest.json` and the trusted catalog rather than copying values
+  into documentation. Publish only the curated five-file stage, include both
+  upstream license files, and use token-free `hf` CLI arguments with credentials
+  supplied from the ignored environment.
 - Commit on a feature branch in meaningful units. Review correctness, security,
   maintainability, reliability, and architecture once before opening a PR.
 - Use a pull request for outer changes. For upstream behavior, merge an upstream
