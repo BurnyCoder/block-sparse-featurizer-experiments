@@ -484,6 +484,35 @@ def test_hub_callback_synchronizes_initial_and_loaded_model_controls(
     )
 
 
+def test_explicit_hub_load_failure_is_visible_without_training_fallback(
+    app_config: AppConfig,
+) -> None:
+    """The browser status explains a Hub failure while every output stays unchanged."""
+
+    pipeline = _HubPipeline()
+
+    def fail_download(_session_id: str, _recipe: PretrainedRecipe) -> ModelConfig:
+        """Simulate an unavailable immutable checkpoint without recording training."""
+
+        raise RuntimeError("checkpoint unavailable")
+
+    pipeline.load_hub_checkpoint = fail_download  # type: ignore[method-assign]
+    app = build_app(app_config, pipeline=pipeline)
+    load_hub = _button_callback(app, "Load from Hugging Face")
+
+    updates = load_hub(
+        "session",
+        PretrainedRecipe.README_QUICKSTART.value,
+    )
+
+    assert all(update == gr.skip() for update in updates[:-2])
+    assert updates[-2] == (
+        "Hugging Face checkpoint load failed: checkpoint unavailable"
+    )
+    assert updates[-1] == "hub pipeline log"
+    assert pipeline.calls == []
+
+
 def test_hub_callback_ignores_empty_train_only_controls(
     app_config: AppConfig,
 ) -> None:

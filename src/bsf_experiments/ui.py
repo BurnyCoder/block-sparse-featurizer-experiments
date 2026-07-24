@@ -1231,6 +1231,22 @@ def build_app(
                 log_tail(identifier),
             )
 
+        def failed_hub_model_values(
+            error: Exception,
+            *,
+            identifier: str,
+        ) -> tuple[Any, ...]:
+            """Keep browser state intact and put a redacted Hub failure in status."""
+
+            return (
+                *(gr.skip() for _ in model_load_outputs[:-2]),
+                (
+                    "Hugging Face checkpoint load failed: "
+                    f"{safe_ui_error_message(error)}"
+                ),
+                log_tail(identifier),
+            )
+
         def load_checkpoint_action(
             raw_session: str | None, upload: Any
         ) -> tuple[Any, ...]:
@@ -1270,7 +1286,7 @@ def build_app(
                 recipe = PretrainedRecipe(recipe_value)
                 loaded = service.load_hub_checkpoint(identifier, recipe)
             except Exception as error:
-                ui_error(error)
+                return failed_hub_model_values(error, identifier=identifier)
             return loaded_model_values(
                 loaded,
                 message=(
