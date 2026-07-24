@@ -10,6 +10,7 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
     "bsf",
     "gradio==6.20.0",
+    "huggingface-hub==1.24.0",
     "ipykernel==7.3.0",
     "jupyterlab==4.6.2",
     "nbclient==0.10.4",
@@ -23,6 +24,7 @@ dependencies = [
 ]
 
 [project.scripts]
+bsf-hub-release = "bsf_experiments.hub_release:release_main"
 bsf-ui = "bsf_experiments.cli:ui_main"
 bsf-reproduce = "bsf_experiments.cli:reproduce_main"
 
