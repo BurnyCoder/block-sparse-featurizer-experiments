@@ -35,6 +35,7 @@ def _spec(payload: bytes) -> HubCheckpointSpec:
         revision=_REVISION,
         filename="checkpoint.pt",
         sha256=hashlib.sha256(payload).hexdigest(),
+        size_bytes=len(payload),
         max_bytes=1024,
         input_dim=3,
         model_config=ModelConfig(
@@ -56,35 +57,46 @@ def test_catalog_has_one_immutable_record_for_every_recipe() -> None:
             "BurnyCoder/bsf-dinov3-rabbits-grassmannian-notebook",
             "6d874cd7c713d0464ec1769cb667f08aeb43720e",
             "f029890c4fa34fe9dcaf350d03870b5b3f035daa3d1fe97c457299d76754748d",
+            2_362_853,
             PRESETS["grassmannian_notebook"].model,
         ),
         PretrainedRecipe.GROUP_LASSO_NOTEBOOK: (
             "BurnyCoder/bsf-dinov3-rabbits-group-lasso-notebook",
             "c0e9c501963ed28d022ecce5fd7b7beafed4720f",
             "46d8d0a68e263f4518350f9334959d3d349bf26d347be013f748da8aa660fde8",
+            4_726_389,
             PRESETS["group_lasso_notebook"].model,
         ),
         PretrainedRecipe.VANILLA_NOTEBOOK: (
             "BurnyCoder/bsf-dinov3-rabbits-vanilla-notebook",
             "bcfdceb086e57f2d5f64d0036a1d08cdc8610442",
             "b87e2a9548abf5c909152ef2f7f89085bbd614a81981db24e976362849aa9d06",
+            4_724_489,
             PRESETS["vanilla_notebook"].model,
         ),
         PretrainedRecipe.README_QUICKSTART: (
             "BurnyCoder/bsf-dinov3-rabbits-readme-quickstart",
             "4f1fc7b7ce3da7c8a41325fc06ee4d3aee11a2ca",
             "449e7dfe65587f2959d8263197805e2f2f33cc7c391dbeb7949539fb58a8e321",
+            2_362_853,
             PRESETS["readme"].model,
         ),
     }
-    for recipe, (repo_id, revision, sha256, model_config) in expected.items():
+    for recipe, (
+        repo_id,
+        revision,
+        sha256,
+        size_bytes,
+        model_config,
+    ) in expected.items():
         spec = get_hub_checkpoint_spec(recipe)
         assert (
             spec.repo_id,
             spec.revision,
             spec.sha256,
+            spec.size_bytes,
             spec.model_config,
-        ) == (repo_id, revision, sha256, model_config)
+        ) == (repo_id, revision, sha256, size_bytes, model_config)
         assert spec.input_dim == 768
         assert spec.filename == "checkpoint.pt"
     with pytest.raises(TypeError):
@@ -190,6 +202,27 @@ def test_download_rejects_bad_preflight_without_fetching(
     assert calls == 1
 
 
+def test_download_rejects_remote_size_that_differs_from_catalog_pin() -> None:
+    """A changed object size is rejected before downloading even below the budget."""
+
+    spec = _spec(b"small")
+    calls = 0
+
+    def fake_download(**_kwargs):
+        nonlocal calls
+        calls += 1
+        return SimpleNamespace(
+            commit_hash=_REVISION,
+            file_size=spec.size_bytes + 1,
+            is_cached=False,
+        )
+
+    with pytest.raises(ValueError, match="trusted catalog size"):
+        download_hub_checkpoint(spec, downloader=fake_download)
+
+    assert calls == 1
+
+
 def test_download_rejects_post_download_size_and_digest_mismatches(
     tmp_path: Path,
 ) -> None:
@@ -212,6 +245,10 @@ def test_download_rejects_post_download_size_and_digest_mismatches(
     with pytest.raises(ValueError, match="SHA-256"):
         download_hub_checkpoint(spec, downloader=fake_download)
 
+    checkpoint.write_bytes(b"short")
+    with pytest.raises(ValueError, match="trusted catalog size"):
+        download_hub_checkpoint(spec, downloader=fake_download)
+
     checkpoint.write_bytes(b"x" * 2048)
     with pytest.raises(ValueError, match="download limit"):
         download_hub_checkpoint(spec, downloader=fake_download)
@@ -223,7 +260,9 @@ def test_download_rejects_post_download_size_and_digest_mismatches(
         {"revision": "main"},
         {"sha256": ""},
         {"filename": "../checkpoint.pt"},
+        {"size_bytes": 0},
         {"max_bytes": 0},
+        {"size_bytes": 2_048},
         {"input_dim": 0},
     ],
 )

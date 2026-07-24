@@ -42,6 +42,7 @@ class HubCheckpointSpec:
     revision: str
     filename: str
     sha256: str
+    size_bytes: int
     max_bytes: int
     input_dim: int
     model_config: ModelConfig
@@ -64,6 +65,7 @@ def _published_spec(
     *,
     revision: str,
     sha256: str,
+    size_bytes: int,
 ) -> HubCheckpointSpec:
     """Build one immutable record for a quality-gated public checkpoint."""
 
@@ -72,6 +74,7 @@ def _published_spec(
         revision=revision,
         filename="checkpoint.pt",
         sha256=sha256,
+        size_bytes=size_bytes,
         max_bytes=DEFAULT_HUB_CHECKPOINT_MAX_BYTES,
         input_dim=768,
         model_config=PRESETS[preset_name].model,
@@ -87,24 +90,28 @@ CHECKPOINT_CATALOG: Mapping[PretrainedRecipe, HubCheckpointSpec] = MappingProxyT
             "grassmannian_notebook",
             revision="6d874cd7c713d0464ec1769cb667f08aeb43720e",
             sha256=("f029890c4fa34fe9dcaf350d03870b5b3f035daa3d1fe97c457299d76754748d"),
+            size_bytes=2_362_853,
         ),
         PretrainedRecipe.GROUP_LASSO_NOTEBOOK: _published_spec(
             "bsf-dinov3-rabbits-group-lasso-notebook",
             "group_lasso_notebook",
             revision="c0e9c501963ed28d022ecce5fd7b7beafed4720f",
             sha256=("46d8d0a68e263f4518350f9334959d3d349bf26d347be013f748da8aa660fde8"),
+            size_bytes=4_726_389,
         ),
         PretrainedRecipe.VANILLA_NOTEBOOK: _published_spec(
             "bsf-dinov3-rabbits-vanilla-notebook",
             "vanilla_notebook",
             revision="bcfdceb086e57f2d5f64d0036a1d08cdc8610442",
             sha256=("b87e2a9548abf5c909152ef2f7f89085bbd614a81981db24e976362849aa9d06"),
+            size_bytes=4_724_489,
         ),
         PretrainedRecipe.README_QUICKSTART: _published_spec(
             "bsf-dinov3-rabbits-readme-quickstart",
             "readme",
             revision="4f1fc7b7ce3da7c8a41325fc06ee4d3aee11a2ca",
             sha256=("449e7dfe65587f2959d8263197805e2f2f33cc7c391dbeb7949539fb58a8e321"),
+            size_bytes=2_362_853,
         ),
     }
 )
@@ -133,11 +140,19 @@ def _validate_spec(spec: HubCheckpointSpec, *, recipe: PretrainedRecipe) -> None
             "Hub checkpoint SHA-256 must be 64 lowercase hexadecimal digits"
         )
     if (
+        isinstance(spec.size_bytes, bool)
+        or not isinstance(spec.size_bytes, int)
+        or spec.size_bytes <= 0
+    ):
+        raise ValueError("Hub checkpoint pinned size must be a positive integer")
+    if (
         isinstance(spec.max_bytes, bool)
         or not isinstance(spec.max_bytes, int)
         or spec.max_bytes <= 0
     ):
         raise ValueError("Hub checkpoint download limit must be a positive integer")
+    if spec.size_bytes > spec.max_bytes:
+        raise ValueError("Hub checkpoint pinned size exceeds its download limit")
     if (
         isinstance(spec.input_dim, bool)
         or not isinstance(spec.input_dim, int)
@@ -239,6 +254,11 @@ def download_hub_checkpoint(
             "Hub checkpoint exceeds its configured download limit: "
             f"{advertised_size} > {spec.max_bytes} bytes."
         )
+    if advertised_size != spec.size_bytes:
+        raise ValueError(
+            "Hub checkpoint preflight does not match its trusted catalog size: "
+            f"{advertised_size} != {spec.size_bytes} bytes."
+        )
     is_cached = getattr(dry_run, "is_cached", False)
     if not isinstance(is_cached, bool):
         raise ValueError("Hub checkpoint preflight returned invalid cache metadata")
@@ -267,6 +287,11 @@ def download_hub_checkpoint(
         raise ValueError(
             "Downloaded Hub checkpoint exceeds its configured download limit: "
             f"{local_size} > {spec.max_bytes} bytes."
+        )
+    if local_size != spec.size_bytes:
+        raise ValueError(
+            "Downloaded Hub checkpoint does not match its trusted catalog size: "
+            f"{local_size} != {spec.size_bytes} bytes."
         )
     if local_size != advertised_size:
         raise ValueError(
