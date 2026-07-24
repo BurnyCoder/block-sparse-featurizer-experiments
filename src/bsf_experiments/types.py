@@ -31,6 +31,22 @@ class FeaturizerKind(StrEnum):
     VANILLA = "vanilla"
 
 
+class ModelSource(StrEnum):
+    """Choose between local training and an immutable Hub checkpoint."""
+
+    TRAIN = "train"
+    HUGGING_FACE = "hugging_face"
+
+
+class PretrainedRecipe(StrEnum):
+    """Stable identifiers for the four exact upstream reproduction recipes."""
+
+    README_QUICKSTART = "readme_quickstart"
+    GRASSMANNIAN_NOTEBOOK = "grassmannian_notebook"
+    GROUP_LASSO_NOTEBOOK = "group_lasso_notebook"
+    VANILLA_NOTEBOOK = "vanilla_notebook"
+
+
 class ExperimentStage(StrEnum):
     """Coarse states used to guard pipeline actions and explain UI readiness."""
 
@@ -167,7 +183,9 @@ __all__ = [
     "ExperimentState",
     "FeaturizerKind",
     "ModelConfig",
+    "ModelSource",
     "PlotConfig",
+    "PretrainedRecipe",
     "TrainingConfig",
     "TrainingEvent",
 ]

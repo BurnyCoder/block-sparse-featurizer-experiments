@@ -10,7 +10,9 @@ from bsf_experiments.types import (
     ExperimentState,
     FeaturizerKind,
     ModelConfig,
+    ModelSource,
     PlotConfig,
+    PretrainedRecipe,
     TrainingConfig,
     TrainingEvent,
 )
@@ -31,6 +33,18 @@ def test_configuration_defaults_describe_the_readme_workflow() -> None:
     assert (training.epochs, training.lr, training.batch_size) == (60, 4e-4, 2048)
     assert not hasattr(plotting, "per_axis_rgb")
     assert plotting.n_img == 10
+
+
+def test_hub_source_and_recipe_values_are_stable_public_identifiers() -> None:
+    """CLI and UI adapters can persist human-readable source and recipe values."""
+
+    assert [source.value for source in ModelSource] == ["train", "hugging_face"]
+    assert {recipe.value for recipe in PretrainedRecipe} == {
+        "readme_quickstart",
+        "grassmannian_notebook",
+        "group_lasso_notebook",
+        "vanilla_notebook",
+    }
 
 
 def test_experiment_state_and_result_records_are_explicit() -> None:
