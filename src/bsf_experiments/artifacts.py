@@ -238,7 +238,7 @@ def _validate_model_matches_config(
     """Reject metadata that would rebuild behavior different from ``model``.
 
     The attribute list mirrors the constructors in the pinned upstream sources:
-    https://github.com/BurnyCoder/block-sparse-featurizer/tree/583bb538e4bec89cb046a3a8bd0b913f6245e594/bsf.
+    https://github.com/BurnyCoder/block-sparse-featurizer/tree/056902172fb8911a27b5f904fbcb7f012f485356/bsf.
     """
 
     import bsf

@@ -282,6 +282,40 @@ def test_preflight_checks_assets_cuda_and_gated_access_without_storing_token(
     assert token not in serialized
 
 
+def test_hf_access_probe_targets_the_pinned_dino_revision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The lightweight gated-access check probes the same immutable runtime model."""
+
+    import huggingface_hub
+
+    calls: dict[str, object] = {}
+
+    def fake_url(*, repo_id: str, filename: str, revision: str) -> str:
+        """Record immutable URL inputs without contacting the Hub."""
+
+        calls.update(repo_id=repo_id, filename=filename, revision=revision)
+        return "https://example.invalid/pinned-config"
+
+    def fake_metadata(url: str, *, token: str) -> None:
+        """Record the metadata request without persisting its synthetic token."""
+
+        calls.update(url=url, token=token)
+
+    monkeypatch.setattr(huggingface_hub, "hf_hub_url", fake_url)
+    monkeypatch.setattr(huggingface_hub, "get_hf_file_metadata", fake_metadata)
+
+    reproduction._check_hf_model_access(reproduction.DINO_MODEL_ID, "synthetic")
+
+    assert calls == {
+        "repo_id": reproduction.DINO_MODEL_ID,
+        "filename": reproduction.DINO_ACCESS_FILE,
+        "revision": reproduction.DINO_REVISION,
+        "url": "https://example.invalid/pinned-config",
+        "token": "synthetic",
+    }
+
+
 def test_preflight_sanitizes_token_echoed_by_hub_exception(tmp_path: Path) -> None:
     """A dependency echoing an authorization value cannot leak it into reports."""
 

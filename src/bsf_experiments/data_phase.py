@@ -21,6 +21,7 @@ import zipfile
 import numpy as np
 from PIL import Image, ImageOps, UnidentifiedImageError
 
+from .backbone_identity import DINO_MODEL_ID, DINO_REVISION
 from .config import resolve_torch_device, validate_device_setting
 from .types import DatasetConfig, DatasetKind
 
@@ -289,6 +290,8 @@ def extract_dino_activations(
         valid_images,
         device=None if requested_device == "auto" else requested_device,
         batch_size=batch_size,
+        model_id=DINO_MODEL_ID,
+        revision=DINO_REVISION,
     )
     acts = np.asarray(activations, dtype=np.float32)
     expected_tail = tuple(upstream_data.POS_MEAN.shape)

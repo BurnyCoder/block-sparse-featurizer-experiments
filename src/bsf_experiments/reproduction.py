@@ -36,6 +36,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Literal, TextIO
 
+from .backbone_identity import DINO_MODEL_ID, DINO_REVISION
+
 
 # Resolve paths from this installed source file instead of the caller's current
 # directory so both ``uv run`` entry points and imported notebook launchers agree.
@@ -43,9 +45,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SUBMODULE_ROOT = PROJECT_ROOT / "vendor" / "block-sparse-featurizer"
 DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "outputs" / "runs"
 
-DINO_MODEL_ID = "facebook/dinov3-vitb16-pretrain-lvd1689m"
 DINO_ACCESS_FILE = "config.json"
-EXPECTED_SUBMODULE_COMMIT = "583bb538e4bec89cb046a3a8bd0b913f6245e594"
+EXPECTED_SUBMODULE_COMMIT = "056902172fb8911a27b5f904fbcb7f012f485356"
 
 # These exact versions are resolved in ``uv.lock``. Checking the installed
 # distributions follows importlib.metadata's documented distribution API:
@@ -522,7 +523,11 @@ def _check_hf_model_access(model_id: str, token: str) -> None:
 
     from huggingface_hub import get_hf_file_metadata, hf_hub_url
 
-    url = hf_hub_url(repo_id=model_id, filename=DINO_ACCESS_FILE)
+    url = hf_hub_url(
+        repo_id=model_id,
+        filename=DINO_ACCESS_FILE,
+        revision=DINO_REVISION,
+    )
     get_hf_file_metadata(url, token=token)
 
 
