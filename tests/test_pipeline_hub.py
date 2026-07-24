@@ -63,6 +63,7 @@ def _spec(config: ModelConfig) -> HubCheckpointSpec:
         revision="1" * 40,
         filename="checkpoint.pt",
         sha256=hashlib.sha256(b"fixture").hexdigest(),
+        size_bytes=len(b"fixture"),
         max_bytes=1024,
         input_dim=3,
         model_config=config,
@@ -179,7 +180,7 @@ def test_injected_hub_client_cannot_bypass_checkpoint_integrity(
     """Even an injected low-level client must pass the shared SHA-256 check."""
 
     checkpoint = tmp_path / "checkpoint.pt"
-    checkpoint.write_bytes(b"tampered")
+    checkpoint.write_bytes(b"tamper!")
     spec = _spec(expected_config)
     pipeline = _pipeline(
         app_config,
