@@ -284,13 +284,19 @@ automated gates require finite outputs (including loss histories where the
 workflow emits them), at least one concept and plot, and R² ≥ 0.70.
 These scores describe the reproduction suite; each unseeded Hub release records
 its own authoritative measured metrics in that repository's `manifest.json`.
+The reproduction outputs behind this table are not committed, so its values
+cannot be re-derived from this repository; the four hosted release manifests
+(separate unseeded runs) report R² values within 0.003 of it.
 
 ## Notes
 
-The upstream repository is a Git submodule at
-`vendor/block-sparse-featurizer`, pinned to merge commit `05690217`, which adds
-backward-compatible training progress, cooperative cancellation hooks, and an
-optional DINO revision forwarded to both Transformers loaders. No generated
+A fork of the upstream Goodfire repository,
+[`BurnyCoder/block-sparse-featurizer`](https://github.com/BurnyCoder/block-sparse-featurizer),
+is a Git submodule at `vendor/block-sparse-featurizer`, pinned to merge commit
+`05690217`. On top of upstream commit `0bf2d9a`, the fork's two merged pull
+requests add backward-compatible training progress and cooperative cancellation
+hooks (#1) and an optional DINO revision forwarded to both Transformers loaders
+(#2). No generated
 datasets, model weights, credentials, logs, or results are committed; the
 submodule retains its small bundled rabbit fixture.
 
@@ -408,7 +414,7 @@ outer submodule pointer. See `AGENTS.md` for the codebase-specific boundaries.
 
 ## License and attribution
 
-This repository orchestrates the vendored
+This repository orchestrates a vendored fork of the
 [Goodfire block-sparse-featurizer project](https://github.com/goodfire-ai/block-sparse-featurizer);
 consult it for the paper, authorship, citation, and MIT software terms.
 
