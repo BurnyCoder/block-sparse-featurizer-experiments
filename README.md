@@ -1,12 +1,12 @@
 # Block-Sparse Featurizer Experiments
 
-A local, GPU-capable workbench for exploring GoodFire’s Block-Sparse Featurizers (BSFs) for mechanistic interpretability of neural networks like image generation models, vision models, and LLMs.
+A local, GPU-capable workbench for exploring Goodfire’s Block-Sparse Featurizers (BSFs), a mechanistic interpretability method that the paper demonstrates on vision models (InceptionV1, DINOv3) and an image generation model (SDXL); the paper reports no BSF experiments on LLMs. This workbench applies BSFs to DINOv3 patch activations.
 
 BSFs shift the sparse coding unit from an individual direction, like Sparse Autoencoders (SAEs) have, to a block of directions spanning a learned low-dimensional subspace. 
 
-In a toy setting, in that subspace they can recover or approximate a manifold within a learned block subspace that a conventional TopK SAE fragments across multiple atoms. 
+In a toy setting, they can recover or approximate a manifold within a learned block subspace that a conventional TopK SAE fragments across multiple atoms (the paper's §3.1 reports per-block R² of 0.93–0.97 for the three BSFs against ≈0.53 for a TopK SAE). 
 
-Outside of toy settings, Goodfire reports evidence for coherent multidimensional variation within individual blocks, like a curve-orientation manifold in InceptionV1, lighting and shadow manifolds in DINOv3, or steerable concept manifolds in SDXL, that SAEs also fragment. ([Structuring Sparsity: Block-Sparse Featurizers Capture Visual Concept Manifolds](https://arxiv.org/abs/2606.25234))
+Outside of toy settings, Goodfire reports evidence for coherent multidimensional variation within individual blocks, like a curve-orientation manifold in InceptionV1, lighting and shadow manifolds in DINOv3, or steerable concept manifolds in SDXL, which the paper argues SAEs fragment into separate directions or fail to capture. ([Fel et al., 2026, Structuring Sparsity: Block-Sparse Featurizers Capture Visual Concept Manifolds](https://arxiv.org/abs/2606.25234))
 
 The workbench exposes the Grassmannian, Group Lasso, and Vanilla block-sparse workflows through a Gradio UI. It can either train a BSF locally or reuse one of four published checkpoints from the [Block-Sparse Featurizers on DINOv3 Rabbits collection](https://huggingface.co/collections/BurnyCoder/block-sparse-featurizers-on-dinov3-rabbits-6a629047facccb1d34e808c2).
 
@@ -284,13 +284,22 @@ automated gates require finite outputs (including loss histories where the
 workflow emits them), at least one concept and plot, and R² ≥ 0.70.
 These scores describe the reproduction suite; each unseeded Hub release records
 its own authoritative measured metrics in that repository's `manifest.json`.
+The README quickstart R² is measured on all 58,800 tokens; the notebook R²
+values are the final training-log values, which upstream `bsf.train` computes
+on a random 20,000-token subsample.
+The reproduction outputs behind this table are not committed, so its values
+cannot be re-derived from this repository; the four hosted release manifests
+(separate unseeded runs) report R² values within 0.003 of it.
 
 ## Notes
 
-The upstream repository is a Git submodule at
-`vendor/block-sparse-featurizer`, pinned to merge commit `05690217`, which adds
-backward-compatible training progress, cooperative cancellation hooks, and an
-optional DINO revision forwarded to both Transformers loaders. No generated
+A fork of the upstream Goodfire repository,
+[`BurnyCoder/block-sparse-featurizer`](https://github.com/BurnyCoder/block-sparse-featurizer),
+is a Git submodule at `vendor/block-sparse-featurizer`, pinned to merge commit
+`05690217`. On top of upstream commit `0bf2d9a`, the fork's two merged pull
+requests add backward-compatible training progress and cooperative cancellation
+hooks (#1) and an optional DINO revision forwarded to both Transformers loaders
+(#2). No generated
 datasets, model weights, credentials, logs, or results are committed; the
 submodule retains its small bundled rabbit fixture.
 
@@ -408,7 +417,7 @@ outer submodule pointer. See `AGENTS.md` for the codebase-specific boundaries.
 
 ## License and attribution
 
-This repository orchestrates the vendored
+This repository orchestrates a vendored fork of the
 [Goodfire block-sparse-featurizer project](https://github.com/goodfire-ai/block-sparse-featurizer);
 consult it for the paper, authorship, citation, and MIT software terms.
 
