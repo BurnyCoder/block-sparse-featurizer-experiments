@@ -284,6 +284,9 @@ automated gates require finite outputs (including loss histories where the
 workflow emits them), at least one concept and plot, and R² ≥ 0.70.
 These scores describe the reproduction suite; each unseeded Hub release records
 its own authoritative measured metrics in that repository's `manifest.json`.
+The README quickstart R² is measured on all 58,800 tokens; the notebook R²
+values are the final training-log values, which upstream `bsf.train` computes
+on a random 20,000-token subsample.
 The reproduction outputs behind this table are not committed, so its values
 cannot be re-derived from this repository; the four hosted release manifests
 (separate unseeded runs) report R² values within 0.003 of it.
